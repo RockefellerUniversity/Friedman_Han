@@ -4,4 +4,4 @@ The code contained was generated in collaboration between the Bioinfromatics Res
 
 Most code contriubtions will corresponds to GitHub contirbution. 
 
-Initial code and establishment of scATACseq and scRNAseq workflows was performed by Ji-Dung Luo
+Initial code and establishment of scATACseq and scRNAseq workflows was performed by [Ji-Dung Luo](https://github.com/adamjdluo)
