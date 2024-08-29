@@ -1,0 +1,243 @@
+---
+title: "20240820_HT_ATAC_paper"
+author: 
+  - "Matt Paul"
+  - "Bioinformatics Resource Center"
+  - "Rockefeller University"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+format:
+  html:
+    embed-resources: true
+    code_folding: hide
+    number_sections: true
+    theme: yeti
+    highlight: tango
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message=F, warning=F, eval=T)
+
+```
+
+3) If the integration has been finalized, provide the UMAP for snATAC-seq data of ARC and PVH. (Fig1), and the percentage of each cell type in the region from the snATAC-seq data (Fig.1f,g). Right now, we have snRNA-seq data for Fig.1f,g.
+
+```{r}
+library(Seurat)
+library(magrittr)
+library(Signac)
+library(ggplot2)
+```
+
+```{r}
+
+ARC_int <- readRDS("../20240206_SCENICplus/data_snRNA_snATAC_Leptin_20240123/seuOBJ_snRNA_snATAC_allSample_ARC_merge.rds")
+
+ARC_int_sub <- readRDS("../20240206_SCENICplus/data_snRNA_snATAC_Leptin_20240123/seuOBJ_snRNA_snATAC_allSample_ARC_merge_subClust.rds")
+
+PVH_int <- readRDS("../20240206_SCENICplus/data_snRNA_snATAC_Leptin_20240123/seuOBJ_snRNA_snATAC_allSample_PVH_merge.rds")
+
+PVH_int_sub <- readRDS("../20240206_SCENICplus/data_snRNA_snATAC_Leptin_20240123/seuOBJ_snRNA_snATAC_allSample_PVH_merge_subClust.rds")
+
+ARC <- readRDS("data_objects/seuATAC_allSample_ARC.rds")
+
+PVH <- readRDS("data_objects/seuATAC_allSample_PVH.rds")
+```
+
+```{r}
+
+ARC@reductions$lsi <- NULL
+ARC@reductions$umap.atac <- NULL
+
+ARC <- RunTFIDF(ARC)
+ARC <- FindTopFeatures(ARC, min.cutoff = 'q0')
+ARC <- RunSVD(ARC)
+ARC <- RunUMAP(object = ARC, reduction = 'lsi', dims = 2:30)
+ARC <- FindNeighbors(object = ARC, reduction = 'lsi', dims = 2:30)
+ARC <- FindClusters(object = ARC, verbose = FALSE, algorithm = 3)
+```
+
+# ARC
+
+
+## Full Dataset
+
+UMAPs showing ATAC datasets. These grouped by the samples, basic clustering (based on the ATAC) and RNA clustering.
+
+
+```{r ARC_ATAC_UMAPs, fig.width=10, fig.height=10, fig.path='figures/', dev=c('png', 'pdf')}
+DimPlot(ARC, group.by = "group")
+DimPlot(ARC, group.by = "seurat_clusters") + ggtitle("basic clustering")
+
+```
+
+```{r ARC_ATAC_UMAPs-3, fig.width=10, fig.height=10, fig.path='figures/', dev=c('png', 'pdf')}
+
+
+ARC$RNA_clusters <- ARC_int$cluster[match(names(ARC$orig.ident), names(ARC_int$cluster))]
+
+DimPlot(ARC, group.by = "RNA_clusters") + ggtitle("RNA clustering")
+
+```
+
+These are the proportions on the ATAc specific clusters.
+
+```{r}
+library(dplyr)
+
+to_plot <- cbind(ARC$seurat_clusters, ARC$group)
+colnames(to_plot) <- c("cluster", "group")
+to_plot %>% as.data.frame() %>% dplyr::group_by(cluster, group) %>% summarise(n()) %>% ggplot(aes(y=`n()`, x=group, fill=cluster )) + geom_bar(position="fill", stat="identity")
+
+
+```
+
+## RNA subset
+
+UMAPs showing ATAC datasets. These grouped by the samples, basic clustering (based on the ATAC) and RNA clustering.
+
+The dataset has been subset based on how the RNA has been subset.
+
+```{R}
+ARC <- readRDS("data_objects/seuATAC_allSample_ARC.rds")
+ARC@reductions$lsi <- NULL
+ARC@reductions$umap.atac <- NULL
+ARC$RNA_clusters <- ARC_int$cluster[match(names(ARC$orig.ident), names(ARC_int$cluster))]
+
+ARC_sub <- subset(ARC, subset = RNA_clusters %in% names(table(ARC_int_sub$cluster)))
+
+```
+
+```{r}
+
+ARC_sub <- RunTFIDF(ARC_sub)
+ARC_sub <- FindTopFeatures(ARC_sub, min.cutoff = 'q0')
+ARC_sub <- RunSVD(ARC_sub)
+ARC_sub <- RunUMAP(object = ARC_sub, reduction = 'lsi', dims = 2:30)
+ARC_sub <- FindNeighbors(object = ARC_sub, reduction = 'lsi', dims = 2:30)
+ARC_sub <- FindClusters(object = ARC_sub, verbose = FALSE, algorithm = 3)
+
+```
+
+```{r ARC_sub_ATAC_UMAPs, fig.width=10, fig.height=10, fig.path='figures/', dev=c('png', 'pdf')}
+
+DimPlot(ARC_sub, group.by = "group")
+DimPlot(ARC_sub, group.by = "seurat_clusters") + ggtitle("basic clustering")
+DimPlot(ARC_sub, group.by = "RNA_clusters") + ggtitle("RNA clustering")
+```
+
+These are the proportions on the ATAC specific clusters.
+
+```{r}
+library(dplyr)
+
+to_plot <- cbind(ARC_sub$seurat_clusters, ARC$group)
+colnames(to_plot) <- c("cluster", "group")
+to_plot %>% as.data.frame() %>% dplyr::group_by(cluster, group) %>% summarise(n()) %>% ggplot(aes(y=`n()`, x=group, fill=cluster )) + geom_bar(position="fill", stat="identity")
+
+
+```
+
+# PVH
+
+## Full Dataset
+
+UMAPs showing ATAC datasets. These grouped by the samples, basic clustering (based on the ATAC) and RNA clustering.
+
+```{r}
+
+PVH@reductions$lsi <- NULL
+PVH@reductions$umap.atac <- NULL
+
+PVH <- RunTFIDF(PVH)
+PVH <- FindTopFeatures(PVH, min.cutoff = 'q0')
+PVH <- RunSVD(PVH)
+PVH <- RunUMAP(object = PVH, reduction = 'lsi', dims = 2:30)
+PVH <- FindNeighbors(object = PVH, reduction = 'lsi', dims = 2:30)
+PVH <- FindClusters(object = PVH, verbose = FALSE, algorithm = 3)
+```
+
+
+```{r PVH_ATAC_UMAPs,, fig.width=10, fig.height=10, fig.path='figures/', dev=c('png', 'pdf')}
+DimPlot(PVH, group.by = "group")
+DimPlot(PVH, group.by = "seurat_clusters") + ggtitle("basic clustering")
+
+```
+
+```{r PVH_ATAC_UMAPs-3, fig.width=10, fig.height=10, fig.path='figures/', dev=c('png', 'pdf')}
+
+
+PVH$RNA_clusters <- PVH_int$cluster[match(names(PVH$orig.ident), names(PVH_int$cluster))]
+
+DimPlot(PVH, group.by = "RNA_clusters") + ggtitle("RNA clustering")
+
+```
+
+These are the proportions on the ATAC specific clusters.
+
+```{r}
+library(dplyr)
+
+to_plot <- cbind(PVH$seurat_clusters, ARC$group)
+colnames(to_plot) <- c("cluster", "group")
+to_plot %>% as.data.frame() %>% dplyr::group_by(cluster, group) %>% summarise(n()) %>% ggplot(aes(y=`n()`, x=group, fill=cluster )) + geom_bar(position="fill", stat="identity")
+
+
+```
+
+## RNA subset
+
+UMAPs showing ATAC datasets. These grouped by the samples, basic clustering (based on the ATAC) and RNA clustering.
+
+The dataset has been subset based on how the RNA has been subset.
+
+```{R}
+
+
+PVH <- readRDS("data_objects/seuATAC_allSample_PVH.rds")
+PVH@reductions$lsi <- NULL
+PVH@reductions$umap.atac <- NULL
+PVH$RNA_clusters <- PVH_int$cluster[match(names(PVH$orig.ident), names(PVH_int$cluster))]
+PVH_sub <- subset(PVH, subset = RNA_clusters %in% names(table(PVH_int_sub$cluster)))
+
+```
+
+```{r}
+
+PVH_sub <- RunTFIDF(PVH_sub)
+PVH_sub <- FindTopFeatures(PVH_sub, min.cutoff = 'q0')
+PVH_sub <- RunSVD(PVH_sub)
+PVH_sub <- RunUMAP(object = PVH_sub, reduction = 'lsi', dims = 2:30)
+PVH_sub <- FindNeighbors(object = PVH_sub, reduction = 'lsi', dims = 2:30)
+PVH_sub <- FindClusters(object = PVH_sub, verbose = FALSE, algorithm = 3)
+
+```
+
+```{r PVH_sub_ATAC_UMAPs, fig.width=10, fig.height=10, fig.path='figures/', dev=c('png', 'pdf')}
+
+DimPlot(PVH_sub, group.by = "group")
+DimPlot(PVH_sub, group.by = "seurat_clusters") + ggtitle("basic clustering")
+DimPlot(PVH_sub, group.by = "RNA_clusters") + ggtitle("RNA clustering")
+```
+
+These are the proportions on the ATAC specific clusters.
+
+```{r}
+library(dplyr)
+
+to_plot <- cbind(PVH_sub$seurat_clusters, ARC$group)
+colnames(to_plot) <- c("cluster", "group")
+to_plot %>% as.data.frame() %>% dplyr::group_by(cluster, group) %>% summarise(n()) %>% ggplot(aes(y=`n()`, x=group, fill=cluster )) + geom_bar(position="fill", stat="identity")
+
+
+```
+
+
+
+# Session Info
+
+```{R}
+devtools::session_info()
+
+```
