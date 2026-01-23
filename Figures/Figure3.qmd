@@ -1,0 +1,76 @@
+---
+title: "20260120_YH_Smad2.CTCF.differentials.Cut&Run"
+author: 
+  - "Matt Paul"
+  - "Bioinformatics Resource Center"
+  - "Rockefeller University"
+format:
+  html:
+    embed-resources: true
+    code_folding: hide
+    number_sections: true
+    theme: yeti
+    highlight: tango
+    toc: true
+    toc_float: true
+# execute:
+#   error: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+
+knitr::opts_chunk$set(echo = F, message=F, warning=F, fig.height=10, fig.width=15, fig.path='figures/', dev=c('png', 'pdf'))
+
+knitr::opts_chunk$set(cache.extra = rand_seed)
+
+set.seed("42")
+```
+
+# Figure 3
+
+## Report Summary
+
+* Han Tan
+* Lab - Darnell
+* Project - Leptin treatment and its affect on various brain regions
+* Analysis - Review scATACseq and integrate with scRNAseq
+
+```{r}
+library(Seurat)
+library(Signac)
+
+```
+
+# Fig 1A
+- ATAC and RNA integrated UMAPs
+
+```{R}
+
+
+```
+
+# Fig 1B
+- ATAC gene activity per cluster markers
+
+# Fig 1C
+- RNA/ATAC at top dge
+
+# Fig 1D
+
+# Fig 1E
+
+# Fig 1F
+- Motif occupancy - MA0523.1
+
+# Fig 1G
+- Motif occupancy - MA0498.1
+
+# Fig 1H
+- Motif occupancy - STAT3
+
+# Fig 1I
+- scRNAseq heatmap at STAT3 targets
+
+# Fig 1J
+- Overepresentation analysis for clustering results
