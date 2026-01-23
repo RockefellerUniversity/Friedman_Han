@@ -1,0 +1,703 @@
+---
+title: "20240923_HT_Workflow_Check"
+author: 
+  - "Matt Paul"
+  - "Bioinformatics Resource Center"
+  - "Rockefeller University"
+date: "`r format(Sys.Date(), '%m/%d/%Y')`"
+format:
+  html:
+    embed-resources: true
+    code_folding: hide
+    number_sections: true
+    theme: yeti
+    highlight: tango
+    toc: true
+    toc_float: true
+---
+
+# Workflow Rerun
+
+We are rerunning this to check the cretion of several rds objects from initial run. 
+
+This is largely based on code from: 9_snATAC_snRNA_allSamples_ARC_20230819.Rmd
+
+1. This script starts from merged and processed RNA and ATAC files that have been split already into ARC and PVH:
+
+"arc.combined_111621.rds"
+"seuATAC_allSample_ARC.rds"
+
+
+2. ATAC and RNA data is integrated together to produce a file called:"seuOBJ_snRNA_snATAC_alSample_ARC.rds"
+
+We think this is equvalent to: "seuOBJ_snRNA_snATAC_allSample_ARC_merge.rds"
+
+3. "seuOBJ_snRNA_snATAC_allSample_ARC_merge.rds" is then subset based on clusters of interest to produce our final object: seuOBJ_snRNA_snATAC_allSample_PVH_merge_subClust.rds 
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message=F, warning=F, eval=T)
+
+```
+
+```{r}
+library(magrittr)
+library(ggplot2)
+library(tidyr)
+library(pheatmap)
+library(Seurat)
+library(Signac)
+
+```
+
+```{r dataProc,include=FALSE,eval=FALSE}
+
+# R version 4.3.0
+# Seurat_4.3.0 
+# Signac_1.10.0 
+# SeuratObject_4.1.3
+
+# library(devtools)
+# install_version("SeuratObject", version = "4.1.3")
+# install_version("Seurat", version = "4.3.0")
+
+# extra_deps <- c("GenomeInfoDb", "GenomicRanges", "IRanges", "Rsamtools", "S4Vectors", "BiocGenerics")
+# BiocManager::install(version = "3.18", extra_deps)
+# 
+# install_version("Signac", version = "1.10.0")
+
+```
+
+```{r, eval=F}
+library(Seurat)
+library(Signac)
+library(RSpectra)
+
+# Load in RNA and ATAC
+
+seu_rna <- readRDS("../data_objects/arc.combined_111621.RDS")
+seu_rna[["clust_snRNA"]] <- seu_rna$seurat_clusters
+seu_atac <- readRDS("../data_objects/seuATAC_allSample_ARC.rds")
+
+# basic rna processing
+set.seed(1001)
+seu_rna[["tech"]] <- "RNA" ## add new meta for tech
+DefaultAssay(seu_rna) <- "RNA"
+seu_rna <- NormalizeData(seu_rna)
+seu_rna <- FindVariableFeatures(seu_rna)
+seu_rna <- ScaleData(seu_rna)
+seu_rna <- RunPCA(seu_rna,npcs = 50,verbose = FALSE)
+ElbowPlot(seu_rna,ndims = 50)
+seu_rna <- FindNeighbors(seu_rna,reduction = 'pca',dims = 1:20)
+seu_rna <- RunUMAP(seu_rna, dims = 1:20,reduction = 'pca')
+seu_rna <- FindClusters(seu_rna)
+
+# basic ATAC processing
+DefaultAssay(seu_atac) <- "ATAC"
+seu_atac[["tech"]] <- "ATAC"
+set.seed(1001)
+DefaultAssay(seu_atac) <- "ATAC"
+seu_atac <- RunTFIDF(seu_atac)
+seu_atac <- FindTopFeatures(seu_atac, min.cutoff = 'q0')
+seu_atac <- RunSVD(seu_atac)
+seu_atac <- RunUMAP(seu_atac, reduction = 'lsi', 
+                      dims = 2:50, reduction.name = "umap.atac", reduction.key = "atacUMAP_")
+seu_atac@assays$ATAC@fragments[[1]]@path <- '/rugpfs/fs0/brc/scratch/jluo/snATAC_Han_20230815/snATAC_aggr_WT_OB_Leptin/outs/fragments.tsv.gz'
+
+# get gene activity - quantifying ATAC-seq counts in the 2 kb-upstream region and gene body
+gene.activity <- GeneActivity(seu_atac,features = VariableFeatures(seu_rna))
+seu_atac[["ACTIVITY"]] <- CreateAssayObject(counts=gene.activity)
+DefaultAssay(seu_atac) <- "ACTIVITY"
+seu_atac <- NormalizeData(seu_atac)
+seu_atac <- ScaleData(seu_atac,features = rownames(seu_atac))
+
+# Identify transfer anchors - need these to transfer ids from RNA to ATAC
+transfer.anchors <- FindTransferAnchors(reference = seu_rna,query = seu_atac,
+                                        features = VariableFeatures(seu_rna),
+                                        reference.assay = "RNA", query.assay = "ACTIVITY",
+                                        reduction = "cca")
+
+# Transfer clusters - use anchors to transfer clustering from RNA to ATAC
+clust_pred <- TransferData(anchorset = transfer.anchors, 
+                           refdata = seu_rna$seurat_clusters,
+                           weight.reduction = seu_atac[["lsi"]], 
+                           dims = 2:30)
+clust_res <- setNames(clust_pred$predicted.id,rownames(clust_pred))
+seu_atac[["clust_snRNA"]] <- clust_res[match(Cells(seu_atac),names(clust_res))]
+
+# Make co-embedding snRNA and snATAC - merges ATAC and RNA
+gene.use <- VariableFeatures(seu_rna)
+refdata <- GetAssayData(seu_rna,assay = "RNA",slot = "data")[gene.use,]
+imputation <- TransferData(anchorset = transfer.anchors, refdata = refdata, 
+                           weight.reduction = seu_atac[["lsi"]], dims = 2:30)
+seu_atac[["RNA"]] <- imputation
+coembed <- merge(x = seu_rna, y = seu_atac)
+coembed <- ScaleData(coembed, features = gene.use, do.scale = FALSE)
+coembed <- RunPCA(coembed, features = gene.use, verbose = FALSE)
+coembed <- FindNeighbors(coembed,reduction = "pca",dims = 1:30,features = gene.use,verbose = FALSE)
+coembed <- RunUMAP(coembed, dims = 1:30,reduction = "pca",verbose = FALSE)
+coembed <- FindClusters(coembed)
+
+# match clusters
+tbl <- table(coembed$seurat_clusters[coembed$tech == "RNA"],
+             coembed$clust_snRNA[coembed$tech == "RNA"])
+
+#pheatmap::pheatmap(tbl,scale = "row")
+# pheatmap::pheatmap(tbl,scale = "column")
+
+# winner takes all manual assignment of RNA specific clustering information onto merged dataset.
+names(table(old_subset$cluster))
+# theresult is not a 1:1 to the clusters in the single 
+coembed[["cluster"]] <- NA
+clust_prop <- list()
+
+coembed$cluster[coembed$seurat_clusters %in% c(0)] <- "5"
+clust_prop$c5_0 <- tbl[1,names(tbl[1,])=="5"]/sum(tbl[1,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(1)] <- "3"
+clust_prop$c3_1 <- tbl[2,names(tbl[2,])=="3"]/sum(tbl[2,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(2,28)] <- "4"
+clust_prop$c4_2 <- tbl[3,names(tbl[3,])=="4"]/sum(tbl[3,])
+clust_prop$c4_28 <- tbl[29,names(tbl[29,])=="4"]/sum(tbl[29,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(3)] <- "6"
+clust_prop$c6_3 <- tbl[4,names(tbl[4,])=="6"]/sum(tbl[4,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(4,18,24)] <- "1"
+clust_prop$c1_4 <- tbl[5,names(tbl[5,])=="1"]/sum(tbl[5,])
+clust_prop$c1_18 <- tbl[19,names(tbl[19,])=="1"]/sum(tbl[19,])
+clust_prop$c1_24 <- tbl[25,names(tbl[25,])=="1"]/sum(tbl[25,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(5,12)] <- "2"
+clust_prop$c2_5 <- tbl[6,names(tbl[6,])=="2"]/sum(tbl[6,])
+clust_prop$c2_12 <- tbl[13,names(tbl[13,])=="2"]/sum(tbl[13,])
+# cluster 2 has a good amount of 0 (now 5)
+
+coembed$cluster[coembed$seurat_clusters %in% c(6,15,17,22)] <- "0"
+clust_prop$c0_6 <- tbl[7,names(tbl[7,])=="0"]/sum(tbl[7,])
+clust_prop$c0_15 <- tbl[16,names(tbl[16,])=="0"]/sum(tbl[16,])
+clust_prop$c0_18 <- tbl[18,names(tbl[18,])=="0"]/sum(tbl[18,])
+clust_prop$c0_23 <- tbl[23,names(tbl[23,])=="0"]/sum(tbl[23,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(7)] <- "11"
+clust_prop$c11_7 <- tbl[8,names(tbl[8,])=="11"]/sum(tbl[8,])
+# cluster 11 has a good amount of 17 (now 0)
+
+coembed$cluster[coembed$seurat_clusters %in% c(8)] <- "8"
+clust_prop$c8_8 <- tbl[9,names(tbl[9,])=="8"]/sum(tbl[9,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(9,27)] <- "10"
+clust_prop$c10_9 <- tbl[10,names(tbl[10,])=="10"]/sum(tbl[10,])
+clust_prop$c10_27 <- tbl[28,names(tbl[28,])=="10"]/sum(tbl[28,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(10)] <- "19"
+clust_prop$c19_10 <- tbl[11,names(tbl[11,])=="19"]/sum(tbl[11,])
+# cluster 19 has a good amount of 1 (now 3)
+
+coembed$cluster[coembed$seurat_clusters %in% c(11)] <- "12"
+clust_prop$c12_11 <- tbl[12,names(tbl[12,])=="12"]/sum(tbl[12,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(13,30)] <- "13"
+clust_prop$c13_13 <- tbl[14,names(tbl[14,])=="13"]/sum(tbl[14,])
+clust_prop$c13_30 <- tbl[31,names(tbl[31,])=="13"]/sum(tbl[31,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(14)] <- "20"
+clust_prop$c20_14 <- tbl[15,names(tbl[15,])=="20"]/sum(tbl[15,])
+# cluster 20 has a good amount of 1 (now 3)
+
+coembed$cluster[coembed$seurat_clusters %in% c(16,21)] <- "9"
+clust_prop$c9_16 <- tbl[17,names(tbl[17,])=="9"]/sum(tbl[17,])
+clust_prop$c9_21 <- tbl[22,names(tbl[22,])=="9"]/sum(tbl[22,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(19)] <- "14"
+clust_prop$c14_19 <- tbl[20,names(tbl[20,])=="14"]/sum(tbl[20,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(20)] <- "15"
+clust_prop$c14_20 <- tbl[21,names(tbl[21,])=="15"]/sum(tbl[21,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(23,26)] <- "7"
+clust_prop$c7_23 <- tbl[24,names(tbl[24,])=="7"]/sum(tbl[24,])
+clust_prop$c7_26 <- tbl[27,names(tbl[27,])=="7"]/sum(tbl[27,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(25)] <- "16"
+clust_prop$c16_25 <- tbl[26,names(tbl[26,])=="16"]/sum(tbl[26,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(29)] <- "23"
+clust_prop$c23_29 <- tbl[30,names(tbl[30,])=="23"]/sum(tbl[30,])
+# cluster 23 has a good amount of 24 (now 1)
+
+coembed$cluster[coembed$seurat_clusters %in% c(31)] <- "18"
+clust_prop$c18_31 <- tbl[32,names(tbl[32,])=="18"]/sum(tbl[32,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(32)] <- "21"
+clust_prop$c21_32 <- tbl[33,names(tbl[33,])=="21"]/sum(tbl[33,])
+
+coembed$cluster[coembed$seurat_clusters %in% c(33)] <- "22"
+clust_prop$c22_34 <- tbl[34,names(tbl[34,])=="22"]/sum(tbl[34,])
+# cluster 33 has a good amount of 1 (now 3)
+
+saveRDS(clust_prop,file = "rds/clust_prop.rds")
+saveRDS(gene.use,"rds/features.rds")
+saveRDS(coembed,file = "rds/final_combined_rerun.rds")
+```
+
+```{R, eval=F}
+# not annotated: 17,24
+#
+
+##
+#seu <- readRDS("seuOBJ_snRNA_snATAC_alSample_ARC.rds")
+seu <- coembed
+
+##
+## extract information
+meta <- seu@meta.data
+count <- GetAssayData(seu,assay = "RNA",slot = "data")
+count <- as.matrix(count)
+clust_atac <- unique(meta$cluster[meta$tech == "ATAC"])
+clust_rna <- unique(meta$cluster[meta$tech == "RNA"])
+clust_share <- clust_rna[clust_rna %in% clust_atac]
+#
+mark_ge <- c("Npy","Alk","Dach2","Unc13c","Tmem26","Pomc","Sntb1","Vgll3","Rgs6","Tcf7l2","Sv2b",
+             "Col24a1","Pdgfd","Colec12","Megf11","Hydin","Gm20754","Lmo7","Nfib","Mcc","Qrfpr",
+             "Pdzrn3","Gem","Ccbe1","Sim1","Bnc2","Sema3e","Lef1","Lhx9")
+mark_ge <- mark_ge[mark_ge %in% rownames(count)]
+#
+calRes_list <- list()
+##
+## For atac
+cell_atac <- rownames(meta)[meta$tech == "ATAC"]
+meta_atac <- meta[meta$tech=="ATAC",]
+#
+calPlot_list <- lapply(c(0:16,18:23),function(clust,ge,mat,meta){
+  cell <- rownames(meta)[meta$cluster==clust]
+  exp <- mat[ge,cell]
+  exp <- rowSums(exp)
+  return(exp)},mark_ge,count,meta_atac)
+names(calPlot_list) <- c(0:16,18:23)
+calPlot_dat <- do.call(cbind,calPlot_list)
+calPlot_dat <- calPlot_dat[!matrixStats::rowSds(calPlot_dat) == 0,]
+calRes_list[["ATAC"]] <- calPlot_dat
+#pheatmap::pheatmap(calPlot_dat,scale = "row",cluster_rows = FALSE,cluster_cols = FALSE)
+# 
+# 
+# calPlot_list <- lapply(mark_ge,function(ge,mat,clust,meta){
+#   exp <- mat[ge,]
+#   exp_list <- lapply(clust,function(x,exp,meta2){
+#     cell_sel <- rownames(meta2)[meta2$cluster==x]
+#     ex <- exp[cell_sel]
+#     to <- length(exp)
+#     pos <- length(ex[ex > 0])
+#     med <- mean(ex)
+#     res <- setNames(c(med,(pos/to)*100),c("exp","prop"))
+#     return(res)},exp,meta)
+#   names(exp_list) <- clust
+#   exp_mat <- do.call(rbind,exp_list)
+#   exp_dat <- data.frame(gene=ge,cluster=rownames(exp_mat),stringsAsFactors = FALSE)
+#   exp_dat <- cbind(exp_dat,exp_mat)
+#   return(exp_dat)},count,clust_share,meta_atac)
+# names(calPlot_list) <- mark_ge
+# calPlot_dat <- do.call(rbind,calPlot_list)
+# calRes_list[["ATAC"]] <- calPlot_dat
+##
+## Process snRNA
+cell_rna <- rownames(meta)[meta$tech == "RNA"]
+meta_rna <- meta[meta$tech=="RNA",]
+#
+calPlot_list <- lapply(mark_ge,function(ge,mat,clust,meta){
+  exp <- mat[ge,]
+  exp_list <- lapply(clust,function(x,exp,meta2){
+    cell_sel <- rownames(meta2)[meta2$cluster==x]
+    ex <- exp[cell_sel]
+    to <- length(exp)
+    pos <- length(ex[ex > 0])
+    med <- mean(ex)
+    res <- setNames(c(med,(pos/to)*100),c("exp","prop"))
+    return(res)},exp,meta)
+  names(exp_list) <- clust
+  exp_mat <- do.call(rbind,exp_list)
+  exp_dat <- data.frame(gene=ge,cluster=rownames(exp_mat),stringsAsFactors = FALSE)
+  exp_dat <- cbind(exp_dat,exp_mat)
+  return(exp_dat)},count,clust_share,meta_rna)
+names(calPlot_list) <- mark_ge
+calPlot_dat <- do.call(rbind,calPlot_list)
+calPlot_dat$cluster <- factor(calPlot_dat$cluster,levels = c(0:16,18:23))
+calRes_list[["RNA"]] <- calPlot_dat
+##
+## do plot
+# dotPlot <- function(dat){
+#   library(ggplot2)
+#   p <- ggplot(dat,aes(x=gene,y=cluster,size=prop,color=exp))+geom_point()+
+#     labs(x="",y="Clusters",color="avg_exp",size="Percent")+
+#     scale_color_gradient(low="white",high = "darkblue")+
+#     theme_classic()+coord_flip()
+#   return(p)}
+# plot_list <- lapply(calRes_list,dotPlot)
+#
+
+
+save(calRes_list,file="rds/toPlot_final_combined_rerun.RData")
+
+##
+## END
+```
+
+```{r load_pack,include=FALSE,eval=F}
+library(Seurat)
+library(Signac)
+library(ggplot2)
+library(pheatmap)
+#
+seu <- readRDS("seuOBJ_snRNA_snATAC_alSample_ARC.rds")
+load("toPlot_ATAC_RNA_allSample_ARC.RData")
+```
+
+```{r merge_data,include=TRUE,eval=F,dpi=300}
+message("UMAP, group by tech")
+DimPlot(seu,group.by = "tech")
+#
+message("UMAP, group by clusters")
+DimPlot(seu,group.by = "seurat_clusters",label = TRUE,split.by = "tech")+NoLegend()
+```
+
+```{r match_clust,include=TRUE,eval=F,dpi=300}
+tbl <- table(seu$seurat_clusters[seu$tech == "RNA"],
+             seu$clust_snRNA[seu$tech == "RNA"])
+pheatmap::pheatmap(tbl,scale = "row")
+#
+DimPlot(seu,group.by = "cluster",label = TRUE,split.by = "tech")+NoLegend()
+```
+
+```{r markGe_dopPlot_atac,include=TRUE,eval=F,dpi=300}
+dat <- calRes_list$ATAC
+pheatmap(dat,scale = "row",cluster_rows = FALSE,cluster_cols = FALSE)
+```
+
+```{r markGe_dopPlot_rna,include=TRUE,eval=F,dpi=300}
+dat <- calRes_list$RNA
+dat <- dat[dat$gene %in% rownames(calRes_list$ATAC),]
+dat$gene <- factor(dat$gene,levels = rev(rownames(calRes_list$ATAC)))
+ggplot(dat,aes(x=gene,y=cluster,size=prop,color=exp))+geom_point()+
+    labs(x="",y="Clusters",color="avg_exp",size="Percent")+
+    scale_color_gradient(low="white",high = "darkblue")+
+    theme_classic()+coord_flip()
+```
+
+```{r}
+
+old_subset <- readRDS("../20240206_SCENICplus/data_snRNA_snATAC_Leptin_20240123/seuOBJ_snRNA_snATAC_allSample_ARC_merge_subClust.rds")
+# old_subset <- readRDS("../../Friedman_Han/20240206_SCENICplus/data_snRNA_snATAC_Leptin_20240123/seuOBJ_snRNA_snATAC_allSample_ARC_merge_subClust.rds")
+
+old_object <- readRDS("~/Downloads/seuOBJ_snRNA_snATAC_allSample_ARC_merge.rds")
+# old_object <- readRDS("../../Friedman_Han/20240206_SCENICplus/data_snRNA_snATAC_Leptin_20240123/seuOBJ_snRNA_snATAC_allSample_ARC_merge.rds")
+
+
+new_object <- readRDS("~/Desktop/rds/final_combined_rerun.rds")
+#new_object <- readRDS("rds/final_combined_rerun.rds")
+
+```
+
+# Cluster overlaps
+
+```{r}
+test <- merge(data.frame(table(old_object$cluster [old_object$tech =="ATAC"])),data.frame(table(new_object$cluster [new_object$tech =="ATAC"])) , by=1)
+colnames(test) <- c("Cluster","Old", "New")
+test %>% pivot_longer(cols = 2:3,names_to = "Dataset") %>% ggplot(aes(x = Cluster, y=value, fill=Dataset)) + geom_bar(stat="identity", position=position_dodge()) + ggtitle("ATAC cluster overlap")
+```
+
+```{r}
+test <- merge(data.frame(table(old_object$cluster [old_object$tech =="RNA"])),data.frame(table(new_object$cluster [new_object$tech =="RNA"])) , by=1)
+colnames(test) <- c("Cluster","Old", "New")
+test %>% pivot_longer(cols = 2:3,names_to = "Dataset") %>% ggplot(aes(x = Cluster, y=value, fill=Dataset)) + geom_bar(stat="identity", position=position_dodge()) + ggtitle("RNA cluster overlap")
+```
+
+```{r}
+tbl <- table(old_object$cluster,
+             new_object$cluster)
+
+pheatmap(tbl, cluster_rows = F, cluster_cols = F, scale = "row")
+```
+
+# UMAPs
+
+## Using existing PCA/UMAP etc
+
+```{r}
+DimPlot(new_object, group.by = "cluster", split.by = "tech")
+DimPlot(old_object, group.by = "cluster", split.by = "tech")
+```
+
+## Rerun existing PCA/UMAP etc
+
+```{r}
+genes.use <- readRDS("data_objects/features.rds")
+new_object <- ScaleData(new_object, features = genes.use, do.scale = FALSE)
+new_object <- RunPCA(new_object, features = genes.use, verbose = FALSE)
+new_object <- RunUMAP(new_object, dims = 1:30)
+
+
+old_object <- ScaleData(old_object, features = genes.use, do.scale = FALSE)
+old_object <- RunPCA(old_object, features = genes.use, verbose = FALSE)
+old_object <- RunUMAP(old_object, dims = 1:30)
+```
+
+```{r}
+
+DimPlot(new_object, group.by = "cluster", split.by = "tech")
+DimPlot(old_object, group.by = "cluster", split.by = "tech")
+```
+
+# Subset to remove clusters
+
+- The final object we have been using has certain clusters removed. Lets try doing taht and see if that helps. 
+
+- excluded - 9, 15, 20,21,23/24
+- in new - 9, 15, 1(maybe), 20/21, 23
+
+issue: 1 <>
+
+```{R}
+new_object$IDs <- names(new_object$orig.ident)
+
+new_subset_temp <- subset(new_object, subset=IDs %in% names(old_subset$cluster))
+
+tbl <- table(old_subset$cluster,
+             new_subset_temp$cluster)
+
+pheatmap(tbl, cluster_rows = F, cluster_cols = F, scale = "row")
+```
+
+## UMAPs
+
+### Using existing PCA/UMAP etc
+
+```{r}
+DimPlot(new_subset_temp, group.by = "cluster", split.by = "tech")
+DimPlot(old_subset, group.by = "cluster", split.by = "tech")
+```
+
+### Rerun existing PCA/UMAP etc
+
+```{r}
+new_object <- new_subset_temp
+old_object <- old_subset
+
+genes.use <- readRDS("data_objects/features.rds")
+new_object <- ScaleData(new_object, features = genes.use, do.scale = FALSE)
+new_object <- RunPCA(new_object, features = genes.use, verbose = FALSE)
+new_object <- RunUMAP(new_object, dims = 1:30)
+
+
+old_object <- ScaleData(old_object, features = genes.use, do.scale = FALSE)
+old_object <- RunPCA(old_object, features = genes.use, verbose = FALSE)
+old_object <- RunUMAP(old_object, dims = 1:30)
+ 
+new_subset_temp <- new_object
+old_subset_temp <- old_object
+```
+
+
+```{r}
+
+DimPlot(new_subset_temp, group.by = "cluster", split.by = "tech")
+DimPlot(old_subset, group.by = "cluster", split.by = "tech")
+```
+
+# Subset to only cells kept in old run
+
+- As the clusters do not match up, lets checkwhat happens if we jsut subset to these cells. 
+
+
+```{r}
+new_subset <- subset(new_subset_temp, subset=cluster %in% names(table(old_subset$cluster)))
+old_subset$IDs <- names(old_subset$orig.ident)
+old_subset_temp <- subset(old_subset, subset=IDs %in% names(new_subset$cluster))
+
+tbl <- table(old_subset_temp$cluster,
+             new_subset$cluster)
+
+pheatmap(tbl, cluster_rows = F, cluster_cols = F, scale = "row")
+
+```
+
+
+## UMAPs
+
+### Using existing PCA/UMAP etc
+
+```{r}
+DimPlot(new_subset_temp, group.by = "cluster", split.by = "tech")
+DimPlot(old_subset_temp, group.by = "cluster", split.by = "tech")
+```
+
+### Rerun existing PCA/UMAP etc
+
+```{r}
+new_object <- new_subset_temp
+old_object <- old_subset_temp
+
+genes.use <- readRDS("data_objects/features.rds")
+new_object <- ScaleData(new_object, features = genes.use, do.scale = FALSE)
+new_object <- RunPCA(new_object, features = genes.use, verbose = FALSE)
+new_object <- RunUMAP(new_object, dims = 1:30)
+
+
+old_object <- ScaleData(old_object, features = genes.use, do.scale = FALSE)
+old_object <- RunPCA(old_object, features = genes.use, verbose = FALSE)
+old_object <- RunUMAP(old_object, dims = 1:30)
+ 
+new_subset_temp <- new_object
+old_subset_temp <- old_object
+```
+
+```{r}
+DimPlot(new_subset_temp, group.by = "cluster", split.by = "tech")
+DimPlot(old_subset_temp, group.by = "cluster", split.by = "tech")
+```
+
+# Cluster Optimization
+
+Try and use subclustering to rescue cluster 11.
+
+```{r}
+
+new_object <- readRDS("~/Desktop/rds/final_combined_rerun.rds")
+
+new_object@active.ident <- factor(new_object$cluster)
+
+DimPlot(new_object, cells=Cells(new_object)[new_object$cluster == 11], split.by = "tech")
+
+
+FeaturePlot(new_object, cells=Cells(new_object)[new_object$cluster == 11], split.by = "tech", features = "Bnc2", pt.size = 0.4)
+
+FeaturePlot(new_object, cells=Cells(new_object)[new_object$cluster == 11], split.by = "tech", features = "Lepr", pt.size = 0.4)
+```
+
+## Resolution - 0.05
+
+
+```{r}
+
+# names(new_object@graphs)
+# 
+# new_object_sub <- FindNeighbors(new_object, graph.name = "test")
+# new_object_sub <- FindClusters(new_object_sub, graph.name = "test", resolution = 4, algorithm = 1, verbose = TRUE)
+
+new_object_test1 <- new_object
+# new_object_test1$seurat_clusters <- new_object_test1$cluster 
+# new_object_test1$integrated_snn_res.0.5 <- new_object_test1$cluster 
+# new_object_test1$RNA_snn_res.0.8 <- new_object_test1$cluster
+# new_object_test1$integrated_snn_res.0.55 <- new_object_test1$cluster
+# new_object_test1$integrated_snn_res.0.6 <- new_object_test1$cluster
+#new_object_test1$ <- new_object_test1$cluster
+
+new_object_test1@active.ident <- factor(new_object_test1$cluster)
+
+# DimPlot(new_object_test1, cells=Cells(new_object_test1)[new_object_test1$cluster == 11], group.by = "cluster")
+
+new_object_test <- FindSubCluster(new_object_test1, 11, "RNA_snn", subcluster.name = "subclust",  resolution = 0.05, algorithm = 1)
+
+DimPlot(new_object_test, cells=Cells(new_object_test)[new_object_test$cluster == 11], group.by = "subclust")
+
+FeaturePlot(new_object_test, cells=Cells(new_object)[new_object$cluster == 11], features = "Bnc2", pt.size = 0.4, split.by = "subclust")
+
+FeaturePlot(new_object_test, cells=Cells(new_object)[new_object$cluster == 11], features = "Lepr", pt.size = 0.4, split.by = "subclust")
+
+
+new_object_test_sub <- subset(new_object_test, cluster == 11)
+
+VlnPlot(new_object_test_sub,  features = "Bnc2", pt.size = 0.4, split.by = "subclust")
+VlnPlot(new_object_test_sub,  features = "Lepr", pt.size = 0.4, split.by = "subclust")
+
+
+saveRDS(new_object_test_sub, "data_objects/final_combined_rerun_res0.05.rds")
+```
+
+## Resolution - 0.1
+
+```{r}
+
+# names(new_object@graphs)
+# 
+# new_object_sub <- FindNeighbors(new_object, graph.name = "test")
+# new_object_sub <- FindClusters(new_object_sub, graph.name = "test", resolution = 4, algorithm = 1, verbose = TRUE)
+
+new_object_test1 <- new_object
+# new_object_test1$seurat_clusters <- new_object_test1$cluster 
+# new_object_test1$integrated_snn_res.0.5 <- new_object_test1$cluster 
+# new_object_test1$RNA_snn_res.0.8 <- new_object_test1$cluster
+# new_object_test1$integrated_snn_res.0.55 <- new_object_test1$cluster
+# new_object_test1$integrated_snn_res.0.6 <- new_object_test1$cluster
+#new_object_test1$ <- new_object_test1$cluster
+
+new_object_test1@active.ident <- factor(new_object_test1$cluster)
+
+# DimPlot(new_object_test1, cells=Cells(new_object_test1)[new_object_test1$cluster == 11], group.by = "cluster")
+
+new_object_test <- FindSubCluster(new_object_test1, 11, "RNA_snn", subcluster.name = "subclust",  resolution = 0.1, algorithm = 1)
+
+DimPlot(new_object_test, cells=Cells(new_object_test)[new_object_test$cluster == 11], group.by = "subclust")
+
+FeaturePlot(new_object_test, cells=Cells(new_object)[new_object$cluster == 11], features = "Bnc2", pt.size = 0.4, split.by = "subclust")
+
+FeaturePlot(new_object_test, cells=Cells(new_object)[new_object$cluster == 11], features = "Lepr", pt.size = 0.4, split.by = "subclust")
+
+
+new_object_test_sub <- subset(new_object_test, cluster == 11)
+
+VlnPlot(new_object_test_sub,  features = "Bnc2", pt.size = 0.4, split.by = "subclust")
+VlnPlot(new_object_test_sub,  features = "Lepr", pt.size = 0.4, split.by = "subclust")
+
+
+saveRDS(new_object_test_sub, "data_objects/final_combined_rerun_res0.1.rds")
+```
+
+## Resolution - 0.3
+
+```{r}
+
+# names(new_object@graphs)
+# 
+# new_object_sub <- FindNeighbors(new_object, graph.name = "test")
+# new_object_sub <- FindClusters(new_object_sub, graph.name = "test", resolution = 4, algorithm = 1, verbose = TRUE)
+
+new_object_test1 <- new_object
+# new_object_test1$seurat_clusters <- new_object_test1$cluster 
+# new_object_test1$integrated_snn_res.0.5 <- new_object_test1$cluster 
+# new_object_test1$RNA_snn_res.0.8 <- new_object_test1$cluster
+# new_object_test1$integrated_snn_res.0.55 <- new_object_test1$cluster
+# new_object_test1$integrated_snn_res.0.6 <- new_object_test1$cluster
+#new_object_test1$ <- new_object_test1$cluster
+
+new_object_test1@active.ident <- factor(new_object_test1$cluster)
+
+# DimPlot(new_object_test1, cells=Cells(new_object_test1)[new_object_test1$cluster == 11], group.by = "cluster")
+
+new_object_test <- FindSubCluster(new_object_test1, 11, "RNA_snn", subcluster.name = "subclust",  resolution = 0.3, algorithm = 1)
+
+DimPlot(new_object_test, cells=Cells(new_object_test)[new_object_test$cluster == 11], group.by = "subclust")
+
+FeaturePlot(new_object_test, cells=Cells(new_object)[new_object$cluster == 11], features = "Bnc2", pt.size = 0.4, split.by = "subclust")
+
+FeaturePlot(new_object_test, cells=Cells(new_object)[new_object$cluster == 11], features = "Lepr", pt.size = 0.4, split.by = "subclust")
+
+
+new_object_test_sub <- subset(new_object_test, cluster == 11)
+
+VlnPlot(new_object_test_sub,  features = "Bnc2", pt.size = 0.4, split.by = "subclust")
+VlnPlot(new_object_test_sub,  features = "Lepr", pt.size = 0.4, split.by = "subclust")
+
+
+saveRDS(new_object_test_sub, "data_objects/final_combined_rerun_res0.3.rds")
+```
+
+
+# Session Information
+
+```{r}
+devtools::session_info()
+
+```
+
