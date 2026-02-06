@@ -1,5 +1,5 @@
 ---
-title: "20260120_YH_Smad2.CTCF.differentials.Cut&Run"
+title: "HT_Figure3"
 author: 
   - "Matt Paul"
   - "Bioinformatics Resource Center"
@@ -20,7 +20,7 @@ format:
 ```{r setup, include=FALSE}
 library(knitr)
 
-knitr::opts_chunk$set(echo = F, message=F, warning=F, fig.height=10, fig.width=15, fig.path='figures/', dev=c('png', 'pdf'))
+knitr::opts_chunk$set(echo = F, message=F, warning=F, fig.height=10, fig.width=15, fig.path='figures/figure3/', dev=c('png', 'pdf'))
 
 knitr::opts_chunk$set(cache.extra = rand_seed)
 
@@ -31,46 +31,235 @@ set.seed("42")
 
 ## Report Summary
 
-* Han Tan
-* Lab - Darnell
-* Project - Leptin treatment and its affect on various brain regions
-* Analysis - Review scATACseq and integrate with scRNAseq
+-   Han Tan
+-   Lab - Friedman
+-   Project - Leptin treatment and its affect on various brain regions
+-   Analysis - Review scATACseq and integrate with scRNAseq
 
 ```{r}
 library(Seurat)
 library(Signac)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
 
 ```
 
 # Fig 1A
-- ATAC and RNA integrated UMAPs
+
+-   ATAC and RNA integrated UMAPs
+
+## ARC
+
+```{r}
+ARC <- readRDS("../Data.Objects/seuOBJ_snRNA_snATAC_allSample_ARC_merge_subClust.rds")
+
+```
+
+```{R, fig3A.ARC.UMAP, fig.height=10, fig.width=15, dev=c('png', 'pdf')}
+ARC$cluster <- factor(ARC$cluster, levels=as.character(sort(as.numeric(unique(ARC$cluster)))))
+
+DimPlot(ARC, split.by = "tech", group.by = "cluster")
+```
+
+## PVH
 
 ```{R}
+PVH <- readRDS("../Data.Objects/seuOBJ_snRNA_snATAC_allSample_PVH_merge_subClust.rds")
+
+```
+
+```{R, fig3A.PVH.UMAP, fig.height=10, fig.width=15, dev=c('png', 'pdf')}
+PVH$cluster <- factor(PVH$cluster, levels=as.character(sort(as.numeric(unique(PVH$cluster)))))
+
+DimPlot(PVH, split.by = "tech", group.by = "cluster")
+```
+
+# Fig 1B
+
+-   ATAC *Gene Activity* score per cluster for marker genes
+
+## ARC
+
+```{R}
+
+mark_ge <- c("Npy","Ccbe1","Dach2","Tmem26","Pomc",
+             "Sntb1","Vgll3","Tcf7l2","Sv2b","Hydin","Mcc",
+             "Col24a1","Pdgfd","Colec12","Lmo7","Megf11","Nfib","Qrfpr","Alk",
+             "Pdzrn3","Gem","Sim1","Bnc2","Sema3e","Unc13c","Lef1","Lhx9","Rgs6")
+
+```
+
+```{R, fig3B.ARC.ATAC.dotplot, fig.height=10, fig.width=15, dev=c('png', 'pdf')}
+
+seu_arc <- subset(ARC, tech=="ATAC")
+count <- GetAssayData(seu_arc, assay = "RNA",slot = "data")
+count <- as.matrix(count)
+
+meta_rna <- seu_arc@meta.data
+
+clust_share <- unique(seu_arc$cluster)
+
+calPlot_list <- lapply(mark_ge, function(ge, mat, clust, meta){
+  
+  exp <- mat[ge,]
+  
+  exp_list <- lapply(clust, function(x, exp, meta2){
+    cell_sel <- rownames(meta2)[meta2$cluster==x]
+    ex <- exp[cell_sel]
+    to <- length(exp)
+    pos <- length(ex[ex > 0])
+    med <- mean(ex)
+    res <- setNames(c(med,(pos/to)*100),c("exp","prop"))
+    return(res)}, exp, meta)
+  
+  names(exp_list) <- clust
+  
+  exp_mat <- do.call(rbind, exp_list)
+  exp_dat <- data.frame(gene=ge,cluster=rownames(exp_mat), stringsAsFactors = FALSE)
+  exp_dat <- cbind(exp_dat,exp_mat)
+  return(exp_dat)}, 
+  count, clust_share, meta_rna)
+
+names(calPlot_list) <- mark_ge
+calPlot_dat <- do.call(rbind,calPlot_list)
+
+calPlot_dat$cluster <- factor(calPlot_dat$cluster,levels = sort(as.numeric(as.vector(unique(calPlot_dat$cluster)))))
+calPlot_dat$gene <- factor(calPlot_dat$gene, levels = unique(calPlot_dat$gene))
+
+ggplot(calPlot_dat, aes(x=gene, y=cluster, size=prop, color=exp)) + geom_point() +
+    labs(x="", y="Clusters", color="avg_exp", size="Percent") +
+    scale_color_gradient(low="white", high = "darkblue") +
+    theme_classic() + coord_flip()
+
+```
+
+```{R, fig3B.ARC.ATAC.heatmap, fig.height=10, fig.width=15, dev=c('png', 'pdf')}
+
+calPlot_list <- lapply(levels(meta_rna$cluster), function(clust,ge,mat,meta){
+  cell <- rownames(meta_rna)[meta_rna$cluster==clust]
+  exp <- mat[ge,cell]
+  exp2 <- apply(exp,1,mean)
+  return(exp2)},mark_ge,count,meta_rna)
+
+names(calPlot_list) <- levels(meta_rna$cluster)
+calPlot_dat <- do.call(cbind,calPlot_list)
+calPlot_dat <- calPlot_dat[!matrixStats::rowSds(calPlot_dat) == 0,]
+
+
+colors <- colorRampPalette(c('blue', 'white', 'red'))(800)
+breaksList = seq(-4, 4, by = 0.01)
+pheatmap(calPlot_dat, scale = "row", cluster_rows = F, cluster_cols = FALSE,
+         breaks = breaksList,
+         color = colors)
 
 
 ```
 
-# Fig 1B
-- ATAC gene activity per cluster markers
+## PVH
+
+```{R}
+
+mark_ge <- c("Agtr1a","Sv2c","Bdnf","Pde3a","Esr2","Iigp1","Plekhg1",
+             "Ebf3","Stk26","Lmcd1","Cpa6","Htr1d")
+
+```
+
+```{R, fig3B.PVH.ATAC.dotplot, fig.height=10, fig.width=15, dev=c('png', 'pdf')}
+
+seu_PVH <- subset(PVH, tech=="ATAC")
+count <- GetAssayData(seu_PVH, assay = "RNA",slot = "data")
+count <- as.matrix(count)
+
+meta_rna <- seu_PVH@meta.data
+
+clust_share <- unique(seu_PVH$cluster)
+
+calPlot_list <- lapply(mark_ge, function(ge, mat, clust, meta){
+  
+  exp <- mat[ge,]
+  
+  exp_list <- lapply(clust, function(x, exp, meta2){
+    cell_sel <- rownames(meta2)[meta2$cluster==x]
+    ex <- exp[cell_sel]
+    to <- length(exp)
+    pos <- length(ex[ex > 0])
+    med <- mean(ex)
+    res <- setNames(c(med,(pos/to)*100),c("exp","prop"))
+    return(res)}, exp, meta)
+  
+  names(exp_list) <- clust
+  
+  exp_mat <- do.call(rbind, exp_list)
+  exp_dat <- data.frame(gene=ge,cluster=rownames(exp_mat), stringsAsFactors = FALSE)
+  exp_dat <- cbind(exp_dat,exp_mat)
+  return(exp_dat)}, 
+  count, clust_share, meta_rna)
+
+names(calPlot_list) <- mark_ge
+calPlot_dat <- do.call(rbind,calPlot_list)
+
+calPlot_dat$cluster <- factor(calPlot_dat$cluster,levels = sort(as.numeric(as.vector(unique(calPlot_dat$cluster)))))
+calPlot_dat$gene <- factor(calPlot_dat$gene, levels = unique(calPlot_dat$gene))
+
+ggplot(calPlot_dat, aes(x=gene, y=cluster, size=prop, color=exp)) + geom_point() +
+    labs(x="", y="Clusters", color="avg_exp", size="Percent") +
+    scale_color_gradient(low="white", high = "darkblue") +
+    theme_classic() + coord_flip()
+
+```
+
+```{R, fig3B.PVH.ATAC.heatmap, fig.height=10, fig.width=15, dev=c('png', 'pdf')}
+
+calPlot_list <- lapply(levels(meta_rna$cluster), function(clust,ge,mat,meta){
+  cell <- rownames(meta_rna)[meta_rna$cluster==clust]
+  exp <- mat[ge,cell]
+  exp2 <- apply(exp,1,mean)
+  return(exp2)},mark_ge,count,meta_rna)
+
+names(calPlot_list) <- levels(meta_rna$cluster)
+calPlot_dat <- do.call(cbind,calPlot_list)
+calPlot_dat <- calPlot_dat[!matrixStats::rowSds(calPlot_dat) == 0,]
+
+
+colors <- colorRampPalette(c('blue', 'white', 'red'))(800)
+breaksList = seq(-4, 4, by = 0.01)
+pheatmap(calPlot_dat, scale = "row", cluster_rows = F, cluster_cols = FALSE,
+         breaks = breaksList,
+         color = colors)
+
+
+```
 
 # Fig 1C
-- RNA/ATAC at top dge
+
+-   RNA/ATAC at top dge
 
 # Fig 1D
 
 # Fig 1E
 
 # Fig 1F
-- Motif occupancy - MA0523.1
+
+-   Motif occupancy - MA0523.1
 
 # Fig 1G
-- Motif occupancy - MA0498.1
+
+-   Motif occupancy - MA0498.1
 
 # Fig 1H
-- Motif occupancy - STAT3
+
+-   Motif occupancy - STAT3
 
 # Fig 1I
-- scRNAseq heatmap at STAT3 targets
+
+-   scRNAseq heatmap at STAT3 targets
 
 # Fig 1J
-- Overepresentation analysis for clustering results
+
+-   Overepresentation analysis for clustering results
+
+```{r}
+devtools::session_info()
+
+```
