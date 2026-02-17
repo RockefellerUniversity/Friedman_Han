@@ -22,3 +22,5 @@ slurm*
 *.pkl
 *.csv
 leptin_arc_pvh
+*.fragments.tsv.gz
+*.rds
