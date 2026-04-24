@@ -65,7 +65,6 @@ library(slider, quietly = T)
 ```{r}
 ARC <- readRDS("../Data.Objects/final_ARC_merged_clusters_20250206.rds")
 
-
 ```
 
 ```{R, fig3A.ARC.UMAP, fig.height=10, fig.width=15, dev=c('png', 'pdf'), eval=F}
@@ -113,14 +112,14 @@ count <- as.matrix(count)
 
 meta_rna <- seu_arc@meta.data
 
-clust_share <- unique(seu_arc$cluster)
+clust_share <- unique(seu_arc$clust_snRNA)
 
 calPlot_list <- lapply(mark_ge, function(ge, mat, clust, meta){
   
   exp <- mat[ge,]
   
   exp_list <- lapply(clust, function(x, exp, meta2){
-    cell_sel <- rownames(meta2)[meta2$cluster==x]
+    cell_sel <- rownames(meta2)[meta2$clust_snRNA==x]
     ex <- exp[cell_sel]
     to <- length(exp)
     pos <- length(ex[ex > 0])
@@ -139,7 +138,7 @@ calPlot_list <- lapply(mark_ge, function(ge, mat, clust, meta){
 names(calPlot_list) <- mark_ge
 calPlot_dat <- do.call(rbind,calPlot_list)
 
-calPlot_dat$cluster <- factor(calPlot_dat$cluster,levels = sort(as.numeric(as.vector(unique(calPlot_dat$cluster)))))
+calPlot_dat$clust_snRNA <- factor(calPlot_dat$clust_snRNA,levels = sort(as.numeric(as.vector(unique(calPlot_dat$clust_snRNA)))))
 calPlot_dat$gene <- factor(calPlot_dat$gene, levels = unique(calPlot_dat$gene))
 
 ggplot(calPlot_dat, aes(x=gene, y=cluster, size=prop, color=exp)) + geom_point() +
@@ -151,13 +150,13 @@ ggplot(calPlot_dat, aes(x=gene, y=cluster, size=prop, color=exp)) + geom_point()
 
 ```{R, fig3B.ARC.ATAC.heatmap, fig.height=10, fig.width=15, dev=c('png', 'pdf'), eval=F}
 
-calPlot_list <- lapply(levels(meta_rna$cluster), function(clust,ge,mat,meta){
-  cell <- rownames(meta_rna)[meta_rna$cluster==clust]
+calPlot_list <- lapply(levels(meta_rna$clust_snRNA), function(clust,ge,mat,meta){
+  cell <- rownames(meta_rna)[meta_rna$clust_snRNA==clust]
   exp <- mat[ge,cell]
   exp2 <- apply(exp,1,mean)
   return(exp2)},mark_ge,count,meta_rna)
 
-names(calPlot_list) <- levels(meta_rna$cluster)
+names(calPlot_list) <- levels(meta_rna$clust_snRNA)
 calPlot_dat <- do.call(cbind,calPlot_list)
 calPlot_dat <- calPlot_dat[!matrixStats::rowSds(calPlot_dat) == 0,]
 
@@ -188,14 +187,14 @@ count <- as.matrix(count)
 
 meta_rna <- seu_PVH@meta.data
 
-clust_share <- unique(seu_PVH$cluster)
+clust_share <- unique(seu_PVH$clust_snRNA)
 
 calPlot_list <- lapply(mark_ge, function(ge, mat, clust, meta){
   
   exp <- mat[ge,]
   
   exp_list <- lapply(clust, function(x, exp, meta2){
-    cell_sel <- rownames(meta2)[meta2$cluster==x]
+    cell_sel <- rownames(meta2)[meta2$clust_snRNA==x]
     ex <- exp[cell_sel]
     to <- length(exp)
     pos <- length(ex[ex > 0])
@@ -214,7 +213,7 @@ calPlot_list <- lapply(mark_ge, function(ge, mat, clust, meta){
 names(calPlot_list) <- mark_ge
 calPlot_dat <- do.call(rbind,calPlot_list)
 
-calPlot_dat$cluster <- factor(calPlot_dat$cluster,levels = sort(as.numeric(as.vector(unique(calPlot_dat$cluster)))))
+calPlot_dat$clust_snRNA <- factor(calPlot_dat$clust_snRNA,levels = sort(as.numeric(as.vector(unique(calPlot_dat$clust_snRNA)))))
 calPlot_dat$gene <- factor(calPlot_dat$gene, levels = unique(calPlot_dat$gene))
 
 ggplot(calPlot_dat, aes(x=gene, y=cluster, size=prop, color=exp)) + geom_point() +
@@ -226,13 +225,13 @@ ggplot(calPlot_dat, aes(x=gene, y=cluster, size=prop, color=exp)) + geom_point()
 
 ```{R, fig3B.PVH.ATAC.heatmap, fig.height=10, fig.width=15, dev=c('png', 'pdf'), eval=F}
 
-calPlot_list <- lapply(levels(meta_rna$cluster), function(clust,ge,mat,meta){
-  cell <- rownames(meta_rna)[meta_rna$cluster==clust]
+calPlot_list <- lapply(levels(meta_rna$clust_snRNA), function(clust,ge,mat,meta){
+  cell <- rownames(meta_rna)[meta_rna$clust_snRNA==clust]
   exp <- mat[ge,cell]
   exp2 <- apply(exp,1,mean)
   return(exp2)},mark_ge,count,meta_rna)
 
-names(calPlot_list) <- levels(meta_rna$cluster)
+names(calPlot_list) <- levels(meta_rna$clust_snRNA)
 calPlot_dat <- do.call(cbind,calPlot_list)
 calPlot_dat <- calPlot_dat[!matrixStats::rowSds(calPlot_dat) == 0,]
 
@@ -261,8 +260,8 @@ ARC_files <- dir("../Data.Objects/dge/results.ARC", pattern=".txt", full.names =
 ARC_tabs <- lapply(ARC_files, read.delim)
 names(ARC_tabs) <- gsub("../Data.Objects/dge/results.ARC/glimma_obs-|_results_file.txt","",ARC_files)
 
-clust_test <- levels(seu$cluster)
-clust_test <- clust_test[clust_test %in% names(ARC_tabs)]
+clust_test <- unique(seu$clust_snRNA)
+clust_test <- as.character(clust_test[clust_test %in% names(ARC_tabs)])
 
 #export all the gene lists that are sinificant only
 all_genes <- lapply(clust_test, function(x){
@@ -343,7 +342,7 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$group, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$group, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "ATAC")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
   my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
@@ -482,7 +481,7 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$condition, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$condition, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "RNA")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
   my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
@@ -605,7 +604,7 @@ names(clust_ord) <- for.plots
 
 ### RNA + ATAC
 
-```{R, fig3C.ARC.RNA.ATAC.co-ordered.dge.heatmap, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3C.heatmaps/',  eval=F}
+```{R, fig3C.ARC.RNA.ATAC.co-ordered.dge.heatmap, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3C.heatmaps/',  eval=T}
 
 # i need to go through this but only include the same genes present in both
 
@@ -630,7 +629,7 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$condition, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$condition, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "RNA")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
   my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
@@ -665,12 +664,12 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$condition, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$group, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "ATAC")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
-  my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
-  my_meta[,2] <- gsub( "leptinARC24h", "lep24h", my_meta[,2]) 
-  my_meta[,2] <- gsub( "leptinARC72h", "lep72h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "Leptin3hr", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub( "Leptin24hr", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "Leptin72hr", "lep72h", my_meta[,2]) 
   my_meta[,2] <- gsub( "ob", "OB", my_meta[,2])
   my_meta[,2] <- gsub( "wt", "WT", my_meta[,2])
   my_meta[,2] <- factor(my_meta[,2], levels=c("OB","lep3h","lep24h","lep72h","WT"))
@@ -699,7 +698,8 @@ clust_ord <- lapply(for.plots, function(y){
   colors <- colorRampPalette(c('blue', 'white', 'red'))(800)
   breaksList = seq(-4, 4, by = 0.01)
 
-  if(nrow(for_plot_sub_rna )>0){
+  print(nrow(for_plot_sub_rna))
+  if(nrow(for_plot_sub_rna)>0){
   
   # first plot is for all genes and all cells
     p1 <-  pheatmap(for_plot_sub_rna,
@@ -737,7 +737,7 @@ clust_ord <- lapply(for.plots, function(y){
 
      print(p1b)
 
-    
+    #print("chk2")
     
 
     grps <- unique(my_meta_sub_rna)
@@ -762,7 +762,7 @@ clust_ord <- lapply(for.plots, function(y){
       for_out <- rowMeans(for_plot_sub_atac[,which(my_meta_sub_atac[,1] == grps[x,1] & my_meta_sub_atac[,2] == grps[x,2])])
       return(for_out)
     })
-
+   #print("chk3")
     colnames(for_plot2) <- apply(grps,1,paste0,collapse="_")
     rownames(grps) <- colnames(for_plot2)
   
@@ -806,14 +806,19 @@ clust_ord <- lapply(for.plots, function(y){
                   color = colors)
 
    print(p2b)
+    #print("chk4")
     
     
-    
-    
-    
+    idx2 <- grepl("WT|OB|72",colnames(for_plot2_rna))
+    idx <- which(rowSums(for_plot2_rna[, idx2])==0)
+    if(length(idx)==0){
+    for_plot3_rna <- for_plot2_rna[, idx2]  
+    }else{
+    for_plot3_rna <- for_plot2_rna[-idx, idx2]
+    }
   #idx <- apply(for_plot2_rna[, c(1,4,5)], 1, var) != 0
 
-  p3 <-  pheatmap(for_plot2_rna[, c(1,4,5)],
+  p3 <-  pheatmap(for_plot3_rna,
                   main=paste0("Relative Gene Expression at DGE in cluster ",y,"\n Expression aggregated within group\n subset of groups shown\n  Consistent gene order is shown"),
                   scale = "row",
                   annotation_col = grps_rna[c(1,4,5),],
@@ -823,15 +828,15 @@ clust_ord <- lapply(for.plots, function(y){
                   treeheight_row=20,
                   labels_row = NULL,
                   breaks = breaksList,
-                  color = colors)
+                  color = colors, cellwidth = 30)
 
    print(p3)
 
     p3_ord <- p3$tree_row$order
-    names_ord <- rownames(for_plot2_rna)[p3_ord]
+    names_ord <- rownames(for_plot3_rna)[p3_ord]
     
     for_plot3_atac <- for_plot2_atac[match(names_ord, rownames(for_plot2_atac)),c(1,4,5)]
-  
+  #print("chk5")
     p3b <-  pheatmap(for_plot3_atac,
                   main=paste0("Relative Gene Activity at DGE in cluster ",y,"\n Expression aggregated within group\n subset of groups shown\n  Consistent gene order is shown"),
                   scale = "row",
@@ -842,8 +847,8 @@ clust_ord <- lapply(for.plots, function(y){
                   show_colnames = F,
                   labels_row = NULL,
                   breaks = breaksList,
-                  color = colors)
-
+                  color = colors, cellwidth = 30)
+  
   print(p3b)
   
   return()
@@ -866,7 +871,7 @@ PVH_files <- dir("../Data.Objects/dge/results.PVH", pattern=".txt", full.names =
 PVH_tabs <- lapply(PVH_files, read.delim)
 names(PVH_tabs) <- gsub("../Data.Objects/dge/results.PVH/glimma_obs-|_results_file.txt","",PVH_files)
 
-clust_test <- levels(seu$cluster)
+clust_test <- as.character(unique(seu$clust_snRNA))
 clust_test <- clust_test[clust_test %in% names(PVH_tabs)]
 
 #export all the gene lists that are sinificant only
@@ -930,12 +935,12 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$condition, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$group, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "ATAC")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
-  my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
-  my_meta[,2] <- gsub( "leptinARC24h", "lep24h", my_meta[,2]) 
-  my_meta[,2] <- gsub( "leptinARC72h", "lep72h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "Leptin3hr", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub( "Leptin24hr", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "Leptin72hr", "lep72h", my_meta[,2]) 
   my_meta[,2] <- gsub( "ob", "OB", my_meta[,2])
   my_meta[,2] <- gsub( "wt", "WT", my_meta[,2])
   my_meta[,2] <- factor(my_meta[,2], levels=c("OB","lep3h","lep24h","lep72h","WT"))
@@ -943,9 +948,10 @@ clust_ord <- lapply(for.plots, function(y){
   my_meta_sub <- my_meta %>% filter(cluster %in% y)
   my_meta_sub[,3] <- NULL
   
+  if(length(rownames(my_meta_sub))>5){
   # reorder data to match the metadata
-  data3_sub <- data3[,colnames(data3) %in% rownames(my_meta_sub)]
-  for_plot <- data3_sub[,match(rownames(my_meta_sub),colnames(data3_sub))] 
+  data3_sub <- data3[,colnames(data3) %in% rownames(my_meta_sub), drop=F]
+  for_plot <- data3_sub[,match(rownames(my_meta_sub),colnames(data3_sub)), drop=F] 
   
   # plotting parameters
   colors <- colorRampPalette(c('blue', 'white', 'red'))(800)
@@ -1036,7 +1042,7 @@ clust_ord <- lapply(for.plots, function(y){
   return(clust_ord)
 
   }else{cat("cluster ",y, " sig dge have no accesiblity")}
-  
+  }
 })
 
 names(clust_ord) <- for.plots 
@@ -1050,6 +1056,8 @@ names(clust_ord) <- for.plots
 seu <- subset(PVH, tech=="RNA")
 
 #for.plots <- names(ids)[!names(ids) %in% c("16","18")]
+
+for.plots <- for.plots[for.plots!="19"]
 
 clust_ord <- lapply(for.plots, function(y){
   print(y)
@@ -1066,12 +1074,12 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$condition, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$condition, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "RNA")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
-  my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
-  my_meta[,2] <- gsub( "leptinARC24h", "lep24h", my_meta[,2]) 
-  my_meta[,2] <- gsub( "leptinARC72h", "lep72h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "leptinPVH3h", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub( "leptinPVH24h", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "leptinPVH72h", "lep72h", my_meta[,2]) 
   my_meta[,2] <- gsub( "ob", "OB", my_meta[,2])
   my_meta[,2] <- gsub( "wt", "WT", my_meta[,2])
   my_meta[,2] <- factor(my_meta[,2], levels=c("OB","lep3h","lep24h","lep72h","WT"))
@@ -1135,10 +1143,11 @@ clust_ord <- lapply(for.plots, function(y){
                   treeheight_row=20,
                   labels_row = NULL,
                   breaks = breaksList,
-                  color = colors)
+                  color = colors, cellwidth = 30)
 
   p2
 
+  #idx2 <- grepl("WT|OB|72",colnames(for_plot2_rna))
   idx <- apply(for_plot2[, c(1,4,5)], 1, var) != 0
 
   p3 <-  pheatmap(for_plot2[idx, c(1,4,5)],
@@ -1151,7 +1160,7 @@ clust_ord <- lapply(for.plots, function(y){
                   treeheight_row=20,
                   labels_row = NULL,
                   breaks = breaksList,
-                  color = colors)
+                  color = colors, cellwidth = 30)
 
   p3
 
@@ -1185,9 +1194,10 @@ names(clust_ord) <- for.plots
 
 # i need to go through this but only include the same genes present in both
 
-
 seu_atac <- subset(PVH, tech=="ATAC")
 seu_rna <- subset(PVH, tech=="RNA")
+
+for.plots <- for.plots[!for.plots%in% c("16","11","14", "6")]
 
 clust_ord <- lapply(for.plots, function(y){
   print(y)
@@ -1206,12 +1216,12 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$condition, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$condition, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "RNA")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
-  my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
-  my_meta[,2] <- gsub( "leptinARC24h", "lep24h", my_meta[,2]) 
-  my_meta[,2] <- gsub( "leptinARC72h", "lep72h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "leptinPVH3h", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub( "leptinPVH24h", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "leptinPVH72h", "lep72h", my_meta[,2]) 
   my_meta[,2] <- gsub( "ob", "OB", my_meta[,2])
   my_meta[,2] <- gsub( "wt", "WT", my_meta[,2])
   my_meta[,2] <- factor(my_meta[,2], levels=c("OB","lep3h","lep24h","lep72h","WT"))
@@ -1241,12 +1251,12 @@ clust_ord <- lapply(for.plots, function(y){
   data3 <- t(data3)
   
   # grab metadata  
-  my_meta <- data.frame(seu_temp$cluster, seu_temp$condition, seu_temp$tech)
+  my_meta <- data.frame(seu_temp$clust_snRNA, seu_temp$group, seu_temp$tech)
   my_meta %<>% dplyr::filter(my_meta$seu_temp.tech == "ATAC")
   colnames(my_meta)[1:2] <-  c("cluster", "group")
-  my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
-  my_meta[,2] <- gsub( "leptinARC24h", "lep24h", my_meta[,2]) 
-  my_meta[,2] <- gsub( "leptinARC72h", "lep72h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "Leptin3hr", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub( "Leptin24hr", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub( "Leptin72hr", "lep72h", my_meta[,2]) 
   my_meta[,2] <- gsub( "ob", "OB", my_meta[,2])
   my_meta[,2] <- gsub( "wt", "WT", my_meta[,2])
   my_meta[,2] <- factor(my_meta[,2], levels=c("OB","lep3h","lep24h","lep72h","WT"))
@@ -1430,19 +1440,19 @@ clust_ord <- lapply(for.plots, function(y){
 
 ```
 
-# Fig 1D
+# Fig 3D
 
 - SCENIC plus results 1
 
-# Fig 1E
+# Fig 3E
 
 - SCENIC plus results 2
 
-# Fig 1F
+# Fig 3F
 
 - Motif occupancy - MA0523.1 - TCF7L2 - Cluster 10
 
-```{r, eval=T}
+```{r, eval=F}
 
 seu_atac <- readRDS("../Data.Objects/seuATAC_allSample_ARC.rds")
 DefaultAssay(seu_atac) <- "ATAC"
@@ -1453,16 +1463,16 @@ DefaultAssay(seu_atac) <- "ATAC"
 
 seu_atac@assays$ATAC@fragments[[1]]@path <- '../Data.Objects/fragments.tsv.gz'
 
-names_1 <- names(ARC$cluster)
+names_1 <- names(ARC$clust_snRNA)
 names_2 <- names(seu_atac$orig.ident)
 seu_atac$keep <- names_2 %in% names_1
 
 seu_atac_sub <- subset(seu_atac, keep)
-seu_atac_sub$cluster <- ARC$cluster[match(names(seu_atac_sub$orig.ident), names(ARC$cluster))]
+seu_atac_sub$clust_snRNA <- ARC$clust_snRNA[match(names(seu_atac_sub$orig.ident), names(ARC$clust_snRNA))]
 
 ```
 
-```{R, eval=T}
+```{R, eval=F}
 # opts <- list()
 # opts[["tax_group"]] <- "vertebrates"
 # opts[["collection"]] <- "CORE"
@@ -1494,7 +1504,7 @@ ARC_motif_sub <- Footprint(
 
 ```
 
-```{r}
+```{r, eval=F}
 
 custom_footprint_plot2 <- function (object, features, assay = NULL, group.by = NULL, split.by = NULL, 
     idents = NULL, label = TRUE, repel = TRUE, show.expected = TRUE, 
@@ -1618,7 +1628,7 @@ custom_footprint_plot2 <- function (object, features, assay = NULL, group.by = N
 
 ```
 
-```{R, fig3F.ARC.Cluster10.TCF7L2.accesiblity.at.motif, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/'}
+```{R, fig3F.ARC.Cluster10.TCF7L2.accesiblity.at.motif, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/', eval=F}
 
 my_feat <- "MA0523.1"
 my_feat_name <- "TCF7L2"
@@ -1634,11 +1644,11 @@ print(a)
 
 ```
 
-# Fig 1G
+# Fig 3G
 
 - Motif occupancy - MA0498.1 - MEIS1 - Cluster 7
 
-```{r}
+```{r, eval=F}
 pwm_plus <- pwm[2]
 
 ARC_motif <- AddMotifs(seu_atac_sub, genome = BSgenome.Mmusculus.UCSC.mm10, pfm = pwm_plus)
@@ -1655,7 +1665,7 @@ ARC_motif_sub <- Footprint(
 
 ```
 
-```{R, fig3F.ARC.Cluster7.MEIS1.accesiblity.at.motif, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/'}
+```{R, fig3F.ARC.Cluster7.MEIS1.accesiblity.at.motif, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/', eval=F}
 
 my_feat <- "MA0498.1"
 my_feat_name <- "MEIS1"
@@ -1669,12 +1679,11 @@ print(a)
 
 ```
 
-# Fig 1H
+# Fig 3H
 
 - Motif occupancy - MA0144.1 - STAT3 - Cluster 0
 
-
-```{r}
+```{r, eval=F}
 pwm_plus <- pwm[3]
 
 ARC_motif <- AddMotifs(seu_atac_sub, genome = BSgenome.Mmusculus.UCSC.mm10, pfm = pwm_plus)
@@ -1691,7 +1700,7 @@ ARC_motif_sub <- Footprint(
 
 ```
 
-```{R, fig3F.ARC.Cluster7.STAT3.accesiblity.at.motif, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/'}
+```{R, fig3F.ARC.Cluster7.STAT3.accesiblity.at.motif, fig.height=10, fig.width=15, dev=c('png', 'pdf'), fig.path='figures/figure3/', eval=F}
 
 my_feat <- "MA0144.1"
 my_feat_name <- "STAT3"
@@ -1705,9 +1714,7 @@ print(a)
 
 ```
 
-
-
-```{r}
+```{r, eval=F}
 custom_footprint_plot3 <- function (object, features, assay = NULL, group.by = NULL, split.by = NULL, 
     idents = NULL, label = TRUE, repel = TRUE, show.expected = TRUE, 
     normalization = "subtract", label.top = 3, label.idents = NULL){
@@ -2001,13 +2008,670 @@ custom_footprint_plot4 <- function (object, features, assay = NULL, group.by = N
 
 ```
 
-# Fig 1I
+# Fig 3I
 
--   scRNAseq heatmap at STAT3 targets
+- scRNAseq heatmap at STAT3 targets
 
-# Fig 1J
+```{r}
 
--   Overepresentation analysis for clustering results
+library(stringr)
+
+seu <- subset(ARC, tech=="RNA")
+
+ereg <- rtracklayer::import("../Data.Objects/scenic_plus_res2/arc/eRegulons.bed")
+r2g <- read.table("../Data.Objects/scenic_plus_res2/arc/r2g.importance.bed", sep ="\t")
+
+tf <- str_split(ereg$name, "_", simplify = T) %>% .[,1]
+stat3 <- as.data.frame(ereg[tf %in% "Stat3"])
+
+r2g$V3 <- r2g$V3-499
+r2g$V2 <- r2g$V2-500
+
+motif_hits <- merge(stat3, r2g, by.x=c("seqnames","start"), by.y=c("V1","V3") )
+seu <- seu[which(rownames(seu) %in% motif_hits$V17)]
+
+motif_hits$name <- gsub("_extended", "", motif_hits$name)
+
+mh <- unique(motif_hits$name)
+
+seu_list <- lapply(1:4, function(x){
+  motif_temp <- motif_hits[motif_hits$name %in% mh[x],]
+  seu_temp <- seu[which(rownames(seu) %in% motif_temp$V17)]
+  return(seu_temp)
+}) 
+
+names(seu_list) <- mh
+```
+
+```{R}
+
+Melt <- function(x) {
+  if (!is.data.frame(x = x)) {
+    x <- as.data.frame(x = x)
+  }
+  return(data.frame(
+    rows = rep.int(x = rownames(x = x), times = ncol(x = x)),
+    cols = unlist(x = lapply(X = colnames(x = x), FUN = rep.int, times = nrow(x = x))),
+    vals = unlist(x = x, use.names = FALSE)
+  ))
+}
+
+features = NULL
+cells = NULL
+group.by = "ident"
+group.bar = TRUE
+group.colors = NULL
+disp.min = -2.5
+disp.max = NULL
+slot = "scale.data"
+assay = NULL
+label = TRUE
+size = 5.5
+hjust = 0
+vjust = 0
+angle = 45
+raster = TRUE
+draw.lines = TRUE
+lines.width = NULL
+group.bar.height = 0.02
+combine = TRUE
+  
+    
+    assay = NULL
+    disp.min <- -2.5
+    disp.max <- 2.5
+    slot <- "scale.data"
+    group.by = "ident"
+    
+    
+```
+
+```{r}    
+    data <- as.data.frame(x = as.matrix(x = t(x = GetAssayData(object = seu, 
+        slot = "scale.data"))))
+    data2 <- Melt(x = t(x = data))
+    
+    data3 <- pivot_wider(data2, names_from = cols, values_from = vals)
+    data3 <- as.data.frame(data3 )
+    rownames(data3 ) <- data3 %>% pull(1)
+    data3 <- data3[,-1]
+    
+    my_meta <- data.frame(seu$clust_snRNA, seu$condition, seu$tech)
+    my_meta %<>% dplyr::filter(my_meta$seu.tech=="RNA")
+    colnames(my_meta)[1:2] <-  c("cluster","group")
+    
+    my_meta[,2] <- gsub( "leptinARC3h", "lep3h", my_meta[,2])
+    my_meta[,2] <- gsub( "leptinARC24h", "lep24h", my_meta[,2]) 
+    my_meta[,2] <- gsub( "leptinARC72h", "lep72h", my_meta[,2]) 
+      
+    my_meta[,2] <- factor(my_meta[,2], levels=c("ob","lep3h","lep24h","lep72h","wt"))
+    my_meta %<>% dplyr::arrange(cluster, group)
+    
+    my_meta_sub <- my_meta %>% filter(cluster %in% c(0,3,17))
+    data3_sub <- data3[,colnames(data3) %in% rownames(my_meta_sub)]
+    for_plot <- data3_sub[,match(rownames(my_meta_sub),colnames(data3_sub))] 
+    
+    colors <- colorRampPalette(c('blue', 'white', 'red'))(400)
+    breaksList = seq(-2, 2, by = 0.01)
+    
+    my_meta_sub[,3] <- NULL
+    
+```
+
+## All STAT3 targets
+
+```{R, fig3I.ARC.STAT3all, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3I.heatmaps/'}
+
+set.seed("42")
+  
+grps <- unique(my_meta_sub)
+
+for_plot2 <- sapply(1:nrow(grps), function(x){
+  
+  for_out <- rowMeans(for_plot[,my_meta_sub[,1] == grps[x,1] & my_meta_sub[,2] == grps[x,2]])
+  return(for_out)
+  
+})
+
+colnames(for_plot2) <- apply(grps, 1, paste0,collapse="_")
+rownames(grps) <- colnames(for_plot2) 
+
+for_plot3 <- for_plot2[!apply(for_plot2[,grepl("wt",colnames(for_plot2))], 1 , var)==0,grepl("wt",colnames(for_plot2))]
+
+p <-  pheatmap(for_plot3,
+               cutree_rows = 10,
+               scale = "row")
+
+row_meta <- data.frame(clusters = cutree(p$tree_row, 
+                                       k = 6))
+row_meta[,1] <- factor(row_meta[,1])
+
+p2 <-  pheatmap(for_plot3[p$tree_row$order,] ,
+          main="Expression of STAT3 target genes",
+         scale = "row",
+         annotation_col = grps, 
+         annotation_row = row_meta,
+         cluster_cols = F,
+         cluster_rows = F,
+         show_rownames = F,
+         show_colnames = F,
+         breaks = breaksList,
+         color = colors)
+
+p2
+
+row_meta_all <- row_meta
+```
+
+## STAT3 target regulatory groups
+
+This is broken down into predicted groups of regulation based on SCENIC+. 
+
+This is encoded by:
+ 
++_+ — TF activity is positively correlated with region accessibility, AND that region's accessibility is positively correlated with gene expression. This is the classic activator model: TF opens chromatin → gene goes up.
+
++_- — TF activity is positively correlated with region accessibility, BUT that region's accessibility is negatively correlated with gene expression. This could represent a TF that opens a silencer element.
+
+-_+ — TF activity is negatively correlated with region accessibility, BUT the region is positively correlated with gene expression. This suggests a repressor model: when the TF is active, it closes chromatin at an activating region, reducing gene expression indirectly.
+
+-_- — TF activity is negatively correlated with region accessibility, AND the region is negatively correlated with gene expression. This is harder to interpret — potentially a repressor acting on a silencer (double negative → net activation).
+
+The propensity for each group is shown here:
+
+```{R}
+knitr::kable(table(motif_hits$name))
+
+```
+
+```{R, fig3I.ARC.STAT3.subset._-_+, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3I.heatmaps/'}
+
+# lapply(1:4, function(x){
+  
+x=1
+
+seu <- seu_list[[x]]
+
+data <- as.data.frame(x = as.matrix(x = t(x = GetAssayData(object = seu, slot = "scale.data"))))
+data2 <- Melt(x = t(x = data))
+    
+data3 <- pivot_wider(data2, names_from = cols, values_from = vals)
+data3 <- as.data.frame(data3 )
+rownames(data3 ) <- data3 %>% pull(1)
+data3 <- data3[,-1]
+    
+my_meta <- data.frame(seu$clust_snRNA, seu$condition, seu$tech)
+my_meta %<>% dplyr::filter(my_meta$seu.tech=="RNA")
+  colnames(my_meta)[1:2] <-  c("cluster","group")
+    
+  my_meta[,2] <- gsub("leptinARC3h", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub("leptinARC24h", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub("leptinARC72h", "lep72h", my_meta[,2]) 
+      
+  my_meta[,2] <- factor(my_meta[,2], levels=c("ob","lep3h","lep24h","lep72h","wt"))
+  my_meta %<>% dplyr::arrange(cluster, group)
+    
+  my_meta_sub <- my_meta %>% filter(cluster %in% c(0,3,17))
+  data3_sub <- data3[,colnames(data3) %in% rownames(my_meta_sub)]
+  for_plot <- data3_sub[,match(rownames(my_meta_sub),colnames(data3_sub))] 
+    
+  colors <- colorRampPalette(c('blue', 'white', 'red'))(400)
+  breaksList = seq(-2, 2, by = 0.01)
+    
+  my_meta_sub[,3] <- NULL
+  
+  grps <- unique(my_meta_sub)
+
+  for_plot2 <- sapply(1:nrow(grps), function(x){
+  
+    for_out <- rowMeans(for_plot[,my_meta_sub[,1] == grps[x,1] & my_meta_sub[,2] == grps[x,2]])
+    return(for_out)
+  
+  })
+
+  colnames(for_plot2) <- apply(grps, 1, paste0,collapse="_")
+  rownames(grps) <- colnames(for_plot2) 
+
+  for_plot3 <- for_plot2[!apply(for_plot2[,grepl("wt",colnames(for_plot2))], 1 , var)==0,grepl("wt",colnames(for_plot2))]
+
+  p <-  pheatmap(for_plot3,
+               cutree_rows = 7,
+               scale = "row")
+
+  row_meta <- data.frame(clusters = cutree(p$tree_row, 
+                                       k = 7))
+  row_meta[,1] <- factor(row_meta[,1])
+
+  p2 <-  pheatmap(for_plot3[p$tree_row$order,] ,
+          main=paste0("Expression of STAT3 target genes\n",names(seu_list)[x]),
+         scale = "row",
+         annotation_col = grps, 
+         annotation_row = row_meta,
+         cluster_cols = F,
+         cluster_rows = F,
+         show_rownames = F,
+         show_colnames = F,
+         breaks = breaksList,
+         color = colors)
+
+p2
+
+row_meta_min.pos <- row_meta
+```
+
+```{R, fig3I.ARC.STAT3.subset._-_-, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3I.heatmaps/'}
+
+# lapply(1:4, function(x){
+  
+x=2
+
+seu <- seu_list[[x]]
+
+data <- as.data.frame(x = as.matrix(x = t(x = GetAssayData(object = seu, slot = "scale.data"))))
+data2 <- Melt(x = t(x = data))
+    
+data3 <- pivot_wider(data2, names_from = cols, values_from = vals)
+data3 <- as.data.frame(data3 )
+rownames(data3 ) <- data3 %>% pull(1)
+data3 <- data3[,-1]
+    
+my_meta <- data.frame(seu$clust_snRNA, seu$condition, seu$tech)
+my_meta %<>% dplyr::filter(my_meta$seu.tech=="RNA")
+  colnames(my_meta)[1:2] <-  c("cluster","group")
+    
+  my_meta[,2] <- gsub("leptinARC3h", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub("leptinARC24h", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub("leptinARC72h", "lep72h", my_meta[,2]) 
+      
+  my_meta[,2] <- factor(my_meta[,2], levels=c("ob","lep3h","lep24h","lep72h","wt"))
+  my_meta %<>% dplyr::arrange(cluster, group)
+    
+  my_meta_sub <- my_meta %>% filter(cluster %in% c(0,3,17))
+  data3_sub <- data3[,colnames(data3) %in% rownames(my_meta_sub)]
+  for_plot <- data3_sub[,match(rownames(my_meta_sub),colnames(data3_sub))] 
+    
+  colors <- colorRampPalette(c('blue', 'white', 'red'))(400)
+  breaksList = seq(-2, 2, by = 0.01)
+    
+  my_meta_sub[,3] <- NULL
+  
+  grps <- unique(my_meta_sub)
+
+  for_plot2 <- sapply(1:nrow(grps), function(x){
+  
+    for_out <- rowMeans(for_plot[,my_meta_sub[,1] == grps[x,1] & my_meta_sub[,2] == grps[x,2]])
+    return(for_out)
+  
+  })
+
+  colnames(for_plot2) <- apply(grps, 1, paste0,collapse="_")
+  rownames(grps) <- colnames(for_plot2) 
+
+  for_plot3 <- for_plot2[!apply(for_plot2[,grepl("wt",colnames(for_plot2))], 1 , var)==0,grepl("wt",colnames(for_plot2))]
+
+  p <-  pheatmap(for_plot3,
+               cutree_rows = 7,
+               scale = "row")
+
+  row_meta <- data.frame(clusters = cutree(p$tree_row, 
+                                       k = 7))
+  row_meta[,1] <- factor(row_meta[,1])
+
+  p2 <-  pheatmap(for_plot3[p$tree_row$order,] ,
+          main=paste0("Expression of STAT3 target genes\n",names(seu_list)[x]),
+         scale = "row",
+         annotation_col = grps, 
+         annotation_row = row_meta,
+         cluster_cols = F,
+         cluster_rows = F,
+         show_rownames = F,
+         show_colnames = F,
+         breaks = breaksList,
+         color = colors)
+
+p2
+
+row_meta_min.min <- row_meta
+```
+
+```{R, fig3I.ARC.STAT3.subset._+_-, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3I.heatmaps/'}
+
+# lapply(1:4, function(x){
+  
+x=3
+
+seu <- seu_list[[x]]
+
+data <- as.data.frame(x = as.matrix(x = t(x = GetAssayData(object = seu, slot = "scale.data"))))
+data2 <- Melt(x = t(x = data))
+    
+data3 <- pivot_wider(data2, names_from = cols, values_from = vals)
+data3 <- as.data.frame(data3 )
+rownames(data3 ) <- data3 %>% pull(1)
+data3 <- data3[,-1]
+    
+my_meta <- data.frame(seu$clust_snRNA, seu$condition, seu$tech)
+my_meta %<>% dplyr::filter(my_meta$seu.tech=="RNA")
+  colnames(my_meta)[1:2] <-  c("cluster","group")
+    
+  my_meta[,2] <- gsub("leptinARC3h", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub("leptinARC24h", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub("leptinARC72h", "lep72h", my_meta[,2]) 
+      
+  my_meta[,2] <- factor(my_meta[,2], levels=c("ob","lep3h","lep24h","lep72h","wt"))
+  my_meta %<>% dplyr::arrange(cluster, group)
+    
+  my_meta_sub <- my_meta %>% filter(cluster %in% c(0,3,17))
+  data3_sub <- data3[,colnames(data3) %in% rownames(my_meta_sub)]
+  for_plot <- data3_sub[,match(rownames(my_meta_sub),colnames(data3_sub))] 
+    
+  colors <- colorRampPalette(c('blue', 'white', 'red'))(400)
+  breaksList = seq(-2, 2, by = 0.01)
+    
+  my_meta_sub[,3] <- NULL
+  
+  grps <- unique(my_meta_sub)
+
+  for_plot2 <- sapply(1:nrow(grps), function(x){
+  
+    for_out <- rowMeans(for_plot[,my_meta_sub[,1] == grps[x,1] & my_meta_sub[,2] == grps[x,2]])
+    return(for_out)
+  
+  })
+
+  colnames(for_plot2) <- apply(grps, 1, paste0,collapse="_")
+  rownames(grps) <- colnames(for_plot2) 
+
+  for_plot3 <- for_plot2[!apply(for_plot2[,grepl("wt",colnames(for_plot2))], 1 , var)==0,grepl("wt",colnames(for_plot2))]
+
+  p <-  pheatmap(for_plot3,
+               cutree_rows = 7,
+               scale = "row")
+
+  row_meta <- data.frame(clusters = cutree(p$tree_row, 
+                                       k = 7))
+  row_meta[,1] <- factor(row_meta[,1])
+
+  p2 <-  pheatmap(for_plot3[p$tree_row$order,] ,
+          main=paste0("Expression of STAT3 target genes\n",names(seu_list)[x]),
+         scale = "row",
+         annotation_col = grps, 
+         annotation_row = row_meta,
+         cluster_cols = F,
+         cluster_rows = F,
+         show_rownames = F,
+         show_colnames = F,
+         breaks = breaksList,
+         color = colors)
+
+p2
+
+row_meta_plus.min <- row_meta
+```
+
+```{R, fig3I.ARC.STAT3.subset._+_+, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3I.heatmaps/'}
+
+# lapply(1:4, function(x){
+  
+x=4
+
+seu <- seu_list[[x]]
+
+data <- as.data.frame(x = as.matrix(x = t(x = GetAssayData(object = seu, slot = "scale.data"))))
+data2 <- Melt(x = t(x = data))
+    
+data3 <- pivot_wider(data2, names_from = cols, values_from = vals)
+data3 <- as.data.frame(data3 )
+rownames(data3 ) <- data3 %>% pull(1)
+data3 <- data3[,-1]
+    
+my_meta <- data.frame(seu$clust_snRNA, seu$condition, seu$tech)
+my_meta %<>% dplyr::filter(my_meta$seu.tech=="RNA")
+  colnames(my_meta)[1:2] <-  c("cluster","group")
+    
+  my_meta[,2] <- gsub("leptinARC3h", "lep3h", my_meta[,2])
+  my_meta[,2] <- gsub("leptinARC24h", "lep24h", my_meta[,2]) 
+  my_meta[,2] <- gsub("leptinARC72h", "lep72h", my_meta[,2]) 
+      
+  my_meta[,2] <- factor(my_meta[,2], levels=c("ob","lep3h","lep24h","lep72h","wt"))
+  my_meta %<>% dplyr::arrange(cluster, group)
+    
+  my_meta_sub <- my_meta %>% filter(cluster %in% c(0,3,17))
+  data3_sub <- data3[,colnames(data3) %in% rownames(my_meta_sub)]
+  for_plot <- data3_sub[,match(rownames(my_meta_sub),colnames(data3_sub))] 
+    
+  colors <- colorRampPalette(c('blue', 'white', 'red'))(400)
+  breaksList = seq(-2, 2, by = 0.01)
+    
+  my_meta_sub[,3] <- NULL
+  
+  grps <- unique(my_meta_sub)
+
+  for_plot2 <- sapply(1:nrow(grps), function(x){
+  
+    for_out <- rowMeans(for_plot[,my_meta_sub[,1] == grps[x,1] & my_meta_sub[,2] == grps[x,2]])
+    return(for_out)
+  
+  })
+
+  colnames(for_plot2) <- apply(grps, 1, paste0,collapse="_")
+  rownames(grps) <- colnames(for_plot2) 
+
+  for_plot3 <- for_plot2[!apply(for_plot2[,grepl("wt",colnames(for_plot2))], 1 , var)==0,grepl("wt",colnames(for_plot2))]
+
+  p <-  pheatmap(for_plot3,
+               cutree_rows = 7,
+               scale = "row")
+
+  row_meta <- data.frame(clusters = cutree(p$tree_row, 
+                                       k = 7))
+  row_meta[,1] <- factor(row_meta[,1])
+
+  p2 <-  pheatmap(for_plot3[p$tree_row$order,] ,
+          main=paste0("Expression of STAT3 target genes\n",names(seu_list)[x]),
+         scale = "row",
+         annotation_col = grps, 
+         annotation_row = row_meta,
+         cluster_cols = F,
+         cluster_rows = F,
+         show_rownames = F,
+         show_colnames = F,
+         breaks = breaksList,
+         color = colors)
+
+p2
+
+row_meta_plus.plus <- row_meta
+```
+
+
+# Fig 3J
+ 
+-   Over-representation analysis for clustering results
+
+```{R, fig3J.ARC.STAT3.clusters, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3J/'}
+
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+mydf <- row_meta_all
+levs <- levels(mydf$clusters)
+
+for_out <- sapply(levs, function(x){
+
+  genes <- rownames(mydf)[mydf==x]
+
+return(genes)
+})
+
+names(for_out) <- paste0("Cluster ", levs)
+
+test_res_MF <- compareCluster(for_out, "enrichGO", 
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH", 
+                keyType = "SYMBOL", 
+                pvalueCutoff = 1, 
+                qvalueCutoff = 1)
+
+test_res_MF@compareClusterResult$Description <- str_wrap(test_res_MF@compareClusterResult$Description, width = 40)
+dotplot(test_res_MF, showCategory = 5)+
+  theme(
+    axis.text.y = element_text(size = 8),   # GO term labels (smaller)
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8)  # rotated x-axis
+  ) + ggtitle("ARC.STAT3.clusters")
+
+test_res_MF_all <- test_res_MF
+```
+
+```{R, fig3J.ARC.STAT3.subset._-_+.clusters, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3J/'}
+
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+mydf <- row_meta_min.pos
+levs <- levels(mydf$clusters)
+
+for_out <- sapply(levs, function(x){
+
+  genes <- rownames(mydf)[mydf==x]
+
+return(genes)
+})
+
+names(for_out) <- paste0("Cluster ", levs)
+
+test_res_MF <- compareCluster(for_out, "enrichGO", 
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH", 
+                keyType = "SYMBOL", 
+                pvalueCutoff = 1, 
+                qvalueCutoff = 1)
+
+test_res_MF@compareClusterResult$Description <- str_wrap(test_res_MF@compareClusterResult$Description, width = 40)
+dotplot(test_res_MF, showCategory = 5)+
+  theme(
+    axis.text.y = element_text(size = 8),   # GO term labels (smaller)
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8)  # rotated x-axis
+  ) + ggtitle("ARC.STAT3.subset._-_+.clusters")
+
+test_res_MF_neg.pos <- test_res_MF
+```
+
+```{R, fig3J.ARC.STAT3.subset._-_-.clusters, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3J/'}
+
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+mydf <- row_meta_min.min
+levs <- levels(mydf$clusters)
+
+for_out <- sapply(levs, function(x){
+
+  genes <- rownames(mydf)[mydf==x]
+
+return(genes)
+})
+
+names(for_out) <- paste0("Cluster ", levs)
+
+test_res_MF <- compareCluster(for_out, "enrichGO", 
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH", 
+                keyType = "SYMBOL", 
+                pvalueCutoff = 1, 
+                qvalueCutoff = 1)
+
+test_res_MF@compareClusterResult$Description <- str_wrap(test_res_MF@compareClusterResult$Description, width = 40)
+dotplot(test_res_MF, showCategory = 5)+
+  theme(
+    axis.text.y = element_text(size = 8),   # GO term labels (smaller)
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8)  # rotated x-axis
+  ) + ggtitle("ARC.STAT3.subset._-_-.clusters")
+
+test_res_MF_neg.neg <- test_res_MF
+```
+
+```{R, fig3J.ARC.STAT3.subset._+_-.clusters, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3J/'}
+
+
+
+mydf <- row_meta_plus.min
+levs <- levels(mydf$clusters)
+
+for_out <- sapply(levs, function(x){
+
+  genes <- rownames(mydf)[mydf==x]
+
+return(genes)
+})
+
+names(for_out) <- paste0("Cluster ", levs)
+
+test_res_MF <- compareCluster(for_out, "enrichGO", 
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH", 
+                keyType = "SYMBOL", 
+                pvalueCutoff = 1, 
+                qvalueCutoff = 1)
+
+test_res_MF@compareClusterResult$Description <- str_wrap(test_res_MF@compareClusterResult$Description, width = 40)
+dotplot(test_res_MF, showCategory = 5)+
+  theme(
+    axis.text.y = element_text(size = 8),   # GO term labels (smaller)
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8)  # rotated x-axis
+  ) + ggtitle("ARC.STAT3.subset._+_-.clusters")
+
+test_res_MF_pos.neg <- test_res_MF
+```
+
+```{R, fig3J.ARC.STAT3.subset._+_+.clusters, fig.height=10, fig.width=20, dev=c('png', 'pdf'), fig.path='figures/figure3/fig3J/'}
+
+mydf <- row_meta_plus.plus
+levs <- levels(mydf$clusters)
+
+for_out <- sapply(levs, function(x){
+
+  genes <- rownames(mydf)[mydf==x]
+
+return(genes)
+})
+
+names(for_out) <- paste0("Cluster ", levs)
+
+test_res_MF <- compareCluster(for_out, "enrichGO", 
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH", 
+                keyType = "SYMBOL", 
+                pvalueCutoff = 1, 
+                qvalueCutoff = 1)
+
+test_res_MF@compareClusterResult$Description <- str_wrap(test_res_MF@compareClusterResult$Description, width = 40)
+dotplot(test_res_MF, showCategory = 5)+
+  theme(
+    axis.text.y = element_text(size = 8),   # GO term labels (smaller)
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8)  # rotated x-axis
+  ) + ggtitle("ARC.STAT3.subset._+_+.clusters")
+
+test_res_MF_pos.pos <- test_res_MF
+```
+
+```{r}
+
+df_out <- list("all"=as.data.frame(test_res_MF_all),
+     "pos.pos"=as.data.frame(test_res_MF_pos.pos),
+     "neg.pos"=as.data.frame(test_res_MF_neg.pos),
+     "neg.neg"=as.data.frame(test_res_MF_neg.neg),
+     "pos.neg"=as.data.frame(test_res_MF_pos.neg))
+
+rio::export(df_out,"tables/STAT3.cluster_GOterm.xlsx")
+
+```
+
 
 ```{r}
 devtools::session_info()
