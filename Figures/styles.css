@@ -1,0 +1,89 @@
+/* ── Typography ───────────────────────────────────────────────────────────── */
+body {
+  font-family: "Source Sans Pro", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #2c3e50;
+}
+
+h1, h2, h3 {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+h1.title {
+  font-size: 1.6em;
+  border-bottom: 3px solid #2980b9;
+  padding-bottom: 0.3em;
+  margin-bottom: 0.2em;
+}
+
+p.subtitle {
+  color: #7f8c8d;
+  font-style: italic;
+  margin-top: 0;
+}
+
+/* ── Section dividers ─────────────────────────────────────────────────────── */
+h1 {
+  margin-top: 2em;
+  padding-top: 0.5em;
+  border-top: 2px solid #ecf0f1;
+}
+
+h2 {
+  margin-top: 1.4em;
+  color: #34495e;
+}
+
+/* ── Code blocks ──────────────────────────────────────────────────────────── */
+pre {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+/* ── Figures ──────────────────────────────────────────────────────────────── */
+img {
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  max-width: 100%;
+}
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+table {
+  font-size: 0.88em;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th {
+  background-color: #2980b9;
+  color: white;
+  padding: 6px 10px;
+}
+
+td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+tr:nth-child(even) { background-color: #f8f9fa; }
+
+/* ── Tab panels ───────────────────────────────────────────────────────────── */
+.panel-tabset .nav-tabs .nav-link {
+  font-weight: 500;
+  color: #555;
+}
+
+.panel-tabset .nav-tabs .nav-link.active {
+  color: #2980b9;
+  border-bottom-color: #2980b9;
+}
+
+/* ── Callout tweaks ───────────────────────────────────────────────────────── */
+.callout {
+  border-radius: 4px;
+  font-size: 0.93em;
+}
