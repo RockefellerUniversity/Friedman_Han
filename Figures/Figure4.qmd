@@ -1,0 +1,374 @@
+---
+title: "Figure 4 — Otp is required for leptin-mediated inhibition of AgRP neurons"
+subtitle: "Single-nucleus multiome analysis | Friedman Lab"
+author:
+  - name: Matt Paul
+    affiliation: Bioinformatics Resource Center, Rockefeller University
+date: today
+format:
+  html:
+    embed-resources: true
+    theme: flatly
+    highlight-style: github
+    toc: true
+    toc-depth: 3
+    toc-float: true
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    code-summary: "Show code"
+    smooth-scroll: true
+    fig-align: center
+    css: styles.css
+execute:
+  warning: false
+  message: false
+  echo: false
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(fig.height=10, fig.width=15, fig.path='figures/figure4/', dev=c('png', 'pdf'))
+
+rand_seed <- 42
+set.seed(rand_seed)
+knitr::opts_chunk$set(cache.extra = rand_seed)
+```
+
+# Overview
+
+::: {.callout-note appearance="minimal"}
+**Project:** Leptin treatment and its effect on hypothalamic brain regions
+**Lab:** Friedman Lab — Rockefeller University
+**Analyst:** Matt Paul (Figs 4B–C); other panels — see individual section notes
+**Analysis:** Functional validation of Otp as a STAT3 target required for leptin-mediated inhibition of AgRP/LepR neurons (ARC cluster 0)
+
+**Key finding:** Despite shared STAT3 activation across LepR neuron subtypes, the homeobox transcription factor Otp is selectively induced in AgRP/LepR neurons. Disruption of Otp abolishes leptin-mediated inhibition of AgRP neuron firing and increases food intake and body weight.
+:::
+
+```{r}
+
+library(Seurat, quietly = TRUE)
+library(Signac, quietly = TRUE)
+library(ggplot2, quietly = TRUE)
+library(patchwork, quietly = TRUE)
+library(tidyverse, quietly = TRUE)
+library(magrittr, quietly = TRUE)
+
+dir.create("tables", showWarnings = FALSE)
+dir.create("figures/figure4", showWarnings = FALSE, recursive = TRUE)
+
+```
+
+```{r color_palettes}
+arc_cond_colors_raw <- c(
+  ob      = "#e04516", OB      = "#e04516",
+  Leptin3hr  = "#8dc9d0",
+  Leptin27hr = "#23c6ea",
+  Leptin75hr = "#2127d9",
+  wt      = "#22d062", WT      = "#22d062"
+)
+
+arc_cond_colors <- c(
+  ob="#e04516",   OB="#e04516",
+  lep3h="#8dc9d0",  Lep3h="#8dc9d0",
+  lep27h="#23c6ea", Lep27h="#23c6ea",
+  lep75h="#2127d9", Lep75h="#2127d9",
+  wt="#22d062",   WT="#22d062"
+)
+```
+
+---
+
+# Fig 4A — Otp expression dynamics across the leptin time course in ARC cluster 0
+
+*Pending — Otp expression line plot to be added here.*
+
+---
+
+# Fig 4B — Chromatin accessibility at the Otp locus in AgRP/LepR neurons
+
+::: {.callout-tip appearance="minimal"}
+Genome browser–style coverage tracks showing per-condition snATAC-seq accessibility at the Otp locus in ARC cluster 0 (AgRP/LepR neurons). Tracks include per-condition ATAC coverage (OB, Lep3h, Lep27h, Lep75h, WT), the linked cis-regulatory element (CRE), STAT3 motif position, and the peak-to-gene link arc. Generated using Signac `CoveragePlot`.
+
+:::
+
+## Data loading
+
+```{r, fig4B.data.load, eval=T}
+
+seu_atac <- readRDS("../Data.Objects/seuATAC_allSample_ARC.rds")
+DefaultAssay(seu_atac) <- "ATAC"
+seu_atac[["tech"]] <- "ATAC"
+
+# Update fragment path if needed
+seu_atac@assays$ATAC@fragments[[1]]@path <- "../Data.Objects/frags/fragments.tsv.gz"
+
+ARC <- readRDS("../Data.Objects/final_ARC_merged_clusters_20250206.rds")
+
+# Match ATAC cells to ARC cluster assignments
+names_arc  <- names(ARC$cluster)
+names_atac <- names(seu_atac$orig.ident)
+seu_atac$keep <- names_atac %in% names_arc
+seu_atac_sub  <- subset(seu_atac, keep)
+seu_atac_sub$cluster <- ARC$cluster[match(names(seu_atac_sub$orig.ident), names_arc)]
+
+# Subset to cluster 0 (AgRP/LepR neurons)
+seu_atac_c0 <- subset(seu_atac_sub, cluster == "0")
+
+# ── Recreate Fragment object after subsetting ─────────────────────────────────
+# Directly setting @path leaves the @cells slot stale; CreateFragmentObject
+# rebuilds it correctly so CoveragePlot can index cells against the fragment file
+frag_path <- "../Data.Objects/frags/fragments.tsv.gz"
+frags_c0  <- CreateFragmentObject(path = frag_path, cells = colnames(seu_atac_c0))
+Fragments(seu_atac_c0) <- NULL
+Fragments(seu_atac_c0) <- frags_c0
+```
+
+```{r}
+# ── STAT3 eRegulon peaks overlapping the Otp window ──────────────────────────
+library(rtracklayer, quietly = TRUE)
+library(stringr,     quietly = TRUE)
+
+ereg <- rtracklayer::import("../Data.Objects/scenic_plus_res2/arc/eRegulons.bed")
+tf   <- str_split(ereg$name, "_", simplify = TRUE)[, 1]
+stat3_regions <- ereg[tf %in% "Stat3"]
+
+# Will be intersected with the plot window once otp_region is defined below
+cat("Total STAT3 eRegulon peaks:", length(stat3_regions), "\n")
+
+
+```
+
+## Coverage track — Otp locus
+
+```{r, fig4B.Otp.coverage, fig.height=8, fig.width=14, eval=T}
+
+# ── Define the Otp genomic region ────────────────────────────────────────────
+# Coordinates for mouse Otp locus (mm10) — adjust if needed
+otp_region <- "chr13-94850000-94950000"
+
+# ── Add condition grouping ────────────────────────────────────────────────────
+# Ensure group metadata is present and uses cleaned condition labels
+seu_atac_c0$condition_clean <- seu_atac_c0$group
+seu_atac_c0$condition_clean <- dplyr::recode(seu_atac_c0$condition_clean,
+  "ob"         = "OB",
+  "Leptin3hr"  = "Lep3h",
+  "Leptin24hr" = "Lep27h",
+  "Leptin72hr" = "Lep75h",
+  "wt"         = "WT"
+)
+seu_atac_c0$condition_clean <- factor(
+  seu_atac_c0$condition_clean,
+  levels = c("OB", "Lep3h", "Lep27h", "Lep75h", "WT")
+)
+
+# ── STAT3 regulon peaks within the Otp window ────────────────────────────────
+otp_gr       <- StringToGRanges(otp_region)
+stat3_in_otp <- subsetByOverlaps(stat3_regions, otp_gr)
+cat("STAT3 eRegulon peaks in Otp window:", length(stat3_in_otp), "\n")
+
+x_min <- start(otp_gr)
+x_max <- end(otp_gr)
+
+# ── Coverage plot ─────────────────────────────────────────────────────────────
+has_links      <- length(Links(seu_atac_c0))      > 0
+has_annotation <- length(Annotation(seu_atac_c0)) > 0
+
+p <- CoveragePlot(
+  object     = seu_atac_c0,
+  region     = otp_region,
+  group.by   = "condition_clean",
+  annotation = has_annotation,
+  peaks      = TRUE,
+  links      = has_links
+) &
+  scale_fill_manual(values = arc_cond_colors)
+
+# ── STAT3 regulon block track ─────────────────────────────────────────────────
+if (length(stat3_in_otp) > 0) {
+  stat3_df <- as.data.frame(stat3_in_otp)
+
+  stat3_track <- ggplot(stat3_df) +
+    geom_rect(aes(xmin = start, xmax = end, ymin = 0, ymax = 1),
+              fill = "#c0392b", color = NA) +
+    scale_x_continuous(limits = c(x_min, x_max), expand = c(0, 0)) +
+    theme_classic() +
+    theme(
+      axis.text    = element_blank(),
+      axis.ticks   = element_blank(),
+      axis.line.y  = element_blank(),
+      axis.title.x = element_blank()
+    ) +
+    ylab("STAT3\nregulon")
+
+  p <- p / stat3_track + plot_layout(heights = c(10, 0.5))
+}
+
+print(p)
+
+```
+
+---
+
+# Fig 4C — STAT3 motif accessibility at the Otp-linked CRE
+
+::: {.callout-tip appearance="minimal"}
+Aggregate Tn5 insertion enrichment (footprint metaplot) centered on STAT3 motif sites within the Otp-linked cis-regulatory element in ARC cluster 0 (AgRP/LepR neurons). One line per condition shows the dynamic accessibility profile across the leptin time course. Generated using Signac `Footprint` + a custom smoothed plot function.
+:::
+
+## Motif annotation and footprinting
+
+```{r, fig4C.data.prep, eval=T}
+
+library(JASPAR2022, quietly = TRUE)
+library(TFBSTools, quietly = TRUE)
+library(BSgenome.Mmusculus.UCSC.mm10, quietly = TRUE)
+library(motifmatchr, quietly = TRUE)
+
+# Load STAT3 PWM
+pwm_stat3 <- getMatrixSet(x = JASPAR2022, opts = list(ID = "MA0144.1"))
+
+# Add motif annotations to cluster 0 ATAC object
+ARC_motif_c0 <- AddMotifs(
+  object  = seu_atac_c0,
+  genome  = BSgenome.Mmusculus.UCSC.mm10,
+  pfm     = pwm_stat3
+)
+
+# Run footprinting — restricted to the Otp-linked CRE peaks
+# (filter to peaks overlapping the Otp locus before running to reduce compute)
+ARC_motif_c0 <- Footprint(
+  object     = ARC_motif_c0,
+  motif.name = "MA0144.1",
+  genome     = BSgenome.Mmusculus.UCSC.mm10
+)
+
+```
+
+## Footprint metaplot
+
+```{r, fig4C.STAT3.footprint, fig.height=6, fig.width=8, eval=F}
+
+library(slider, quietly = TRUE)
+
+# Custom smoothed footprint plot (adapted from Figure 3F)
+# Uses .before=7, .after=7 sliding mean and restricts to abs(position) < 101
+custom_footprint_plot3 <- function(object, features, group.by = NULL,
+                                    normalization = "subtract") {
+  library(magrittr); library(dplyr); library(slider); library(ggplot2)
+
+  assay    <- Seurat::DefaultAssay(object = object)
+  plot.data <- GetFootprintData(object = object, features = features,
+                                 assay = assay, group.by = group.by)
+  plot.data %<>% dplyr::filter(abs(position) <= 200)
+
+  motif.sizes <- Signac:::GetMotifSize(object = object, features = features, assay = assay)
+  obs    <- plot.data[plot.data$class == "Observed", ]
+  expect <- plot.data[plot.data$class == "Expected", ]
+  base   <- ceiling(motif.sizes / 2)
+
+  obs$flanks <- sapply(seq_len(nrow(obs)), function(x) {
+    pos  <- abs(obs[x, "position"])
+    size <- base[[obs[x, "feature"]]]
+    (pos > size) & (pos < (size + 50))
+  })
+
+  if (!is.null(normalization)) {
+    correction.vec <- setNames(expect$norm.value, paste(expect$position, expect$feature))
+    obs$norm.value <- obs$norm.value - correction.vec[paste(obs$position, obs$feature)]
+  }
+
+  i <- 1
+  df <- obs[obs$feature == features[[i]], ]
+
+  final_mat <- lapply(unique(df$group), function(grp) {
+    df_temp <- df %>%
+      filter(group == grp) %>%
+      group_by(position) %>%
+      summarise(mean_norm = mean(norm.value), .groups = "drop")
+    df_temp$mean_norm_slide <- slide_dbl(df_temp$mean_norm, mean, .before = 7, .after = 7)
+    df_temp$group <- grp
+    dplyr::filter(df_temp, abs(position) < 101)
+  })
+  df <- do.call(rbind, final_mat)
+
+  axis.min <- range(df$mean_norm_slide)[1] - diff(range(df$mean_norm_slide)) / 10
+  axis.max <- range(df$mean_norm_slide)[2] + diff(range(df$mean_norm_slide)) / 10
+
+  ggplot(df, aes(x = position, y = mean_norm_slide, color = group)) +
+    scale_color_manual(values = arc_cond_colors_raw) +
+    geom_line(linewidth = 0.5) +
+    xlab("Distance from motif (bp)") +
+    ylab("Tn5 insertion enrichment") +
+    ggtitle("STAT3 motif accessibility at Otp-linked CRE\n(ARC cluster 0, AgRP/LepR neurons)") +
+    theme_classic() +
+    ylim(c(axis.min, axis.max)) +
+    guides(color = guide_legend(override.aes = list(linewidth = 1)))
+}
+
+p_4c <- custom_footprint_plot3(
+  object   = ARC_motif_c0,
+  features = "MA0144.1",
+  group.by = "condition_clean"
+)
+
+print(p_4c)
+
+```
+
+---
+
+# Fig 4D — Electrophysiology: sgCtrl neurons, ACSF vs. leptin
+
+*Pending — electrophysiology traces to be added here.*
+
+---
+
+# Fig 4E — Electrophysiology: sgOtp neurons, ACSF vs. leptin
+
+*Pending — electrophysiology traces to be added here.*
+
+---
+
+# Fig 4F — Change in action potential frequency in response to leptin
+
+*Pending — ΔAP frequency dot plot to be added here.*
+
+---
+
+# Fig 4G — Food intake after PBS or leptin injection
+
+*Pending — food intake bar chart to be added here.*
+
+---
+
+# Fig 4H — Body weight gain over 10 weeks
+
+*Pending — body weight gain line graph to be added here.*
+
+---
+
+# Fig 4I — Body composition (lean and fat mass)
+
+*Pending — body composition bar chart to be added here.*
+
+---
+
+# Fig 4J — Daily chow intake
+
+*Pending — daily chow intake bar chart to be added here.*
+
+---
+
+# Fig 4K — Energy expenditure vs. body weight
+
+*Pending — energy expenditure scatter plot to be added here.*
+
+---
+
+# Session Information
+
+```{r}
+devtools::session_info()
+```
