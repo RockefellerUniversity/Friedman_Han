@@ -163,25 +163,42 @@ seu_atac_c0$condition_clean <- factor(
 )
 
 otp_gr       <- StringToGRanges(otp_region)
-stat3_in_otp <- subsetByOverlaps(stat3_regions, otp_gr)
 x_min <- start(otp_gr)
 x_max <- end(otp_gr)
+
+# ── Correct SCENIC+ coordinate offset ────────────────────────────────────────
+# The eRegulons.bed coordinates may be slightly offset from Cell Ranger peak
+# boundaries (SCENIC+ stores summit-based positions; Cell Ranger peaks vary
+# in width). To ensure the STAT3 block track aligns exactly with the peaks
+# track in CoveragePlot, we find Cell Ranger peaks that overlap the eRegulon
+# regions and use their precise boundaries instead.
+cellranger_peaks <- granges(seu_atac_c0)
+
+stat3_ereg_in_otp <- subsetByOverlaps(stat3_regions, otp_gr)
+cat("STAT3 eRegulon regions in Otp window:", length(stat3_ereg_in_otp), "\n")
+
+# Find Cell Ranger peaks overlapping each STAT3 eRegulon region
+hits         <- findOverlaps(stat3_ereg_in_otp, cellranger_peaks)
+stat3_in_otp <- cellranger_peaks[subjectHits(hits)]
+stat3_in_otp <- unique(stat3_in_otp)
+cat("Cell Ranger peaks matched to STAT3 eRegulon regions:", length(stat3_in_otp), "\n")
 
 has_links      <- length(Links(seu_atac_c0))      > 0
 has_annotation <- length(Annotation(seu_atac_c0)) > 0
 
 # ── Helper: append STAT3 block track to a CoveragePlot ───────────────────────
+# Uses Signac's PeakPlot() so the STAT3 track shares the exact same coordinate
+# system as the coverage panels — guarantees pixel-perfect x-axis alignment.
 add_stat3_track <- function(p) {
   if (length(stat3_in_otp) == 0) return(p)
-  stat3_df    <- as.data.frame(stat3_in_otp)
-  stat3_track <- ggplot(stat3_df) +
-    geom_rect(aes(xmin = start, xmax = end, ymin = 0, ymax = 1),
-              fill = "#c0392b", color = NA) +
-    scale_x_continuous(limits = c(x_min, x_max), expand = c(0, 0)) +
-    theme_classic() +
-    theme(axis.text = element_blank(), axis.ticks = element_blank(),
-          axis.line.y = element_blank(), axis.title.x = element_blank()) +
-    ylab("STAT3\nregulon")
+  stat3_track <- PeakPlot(
+    object = seu_atac_c0,
+    region = otp_region,
+    peaks  = stat3_in_otp
+  ) +
+    scale_fill_manual(values = c("Peak" = "#c0392b")) +
+    ylab("STAT3\nregulon") +
+    theme(axis.title.y = element_text(size = 8))
   p / stat3_track + plot_layout(heights = c(10, 0.5))
 }
 
@@ -212,12 +229,13 @@ Fragments(seu_atac_c0_ds) <- frags_ds
 ```{r, fig4B.Otp.coverage.rpm, fig.height=8, fig.width=14, eval=T}
 
 p_rpm <- CoveragePlot(
-  object     = seu_atac_c0,
-  region     = otp_region,
-  group.by   = "condition_clean",
-  annotation = has_annotation,
-  peaks      = TRUE,
-  links      = has_links
+  object           = seu_atac_c0,
+  region           = otp_region,
+  group.by         = "condition_clean",
+  annotation       = has_annotation,
+  peaks            = TRUE,
+  links            = has_links,
+  region.highlight = stat3_in_otp
 ) &
   scale_fill_manual(values = arc_cond_colors)
 
@@ -230,12 +248,13 @@ print(add_stat3_track(p_rpm))
 ```{r, fig4B.Otp.coverage.ds, fig.height=8, fig.width=14, eval=T}
 
 p_ds <- CoveragePlot(
-  object     = seu_atac_c0_ds,
-  region     = otp_region,
-  group.by   = "condition_clean",
-  annotation = has_annotation,
-  peaks      = TRUE,
-  links      = has_links
+  object           = seu_atac_c0_ds,
+  region           = otp_region,
+  group.by         = "condition_clean",
+  annotation       = has_annotation,
+  peaks            = TRUE,
+  links            = has_links,
+  region.highlight = stat3_in_otp
 ) &
   scale_fill_manual(values = arc_cond_colors)
 
@@ -438,6 +457,66 @@ custom_footprint_plot3(ARC_motif_combined, features = "MA0144.1",
 custom_footprint_plot3(ARC_motif_combined, features = "MA0144.1",
                        group.by = "group") +
   ggtitle("STAT3 motif accessibility — Otp ± 20 kb\nClusters 0, 3 and 17 pooled (LepR neurons)")
+
+```
+
+### Peak signal heatmap
+
+```{r, fig4C.peak.heatmap.prep, eval=T}
+
+library(pheatmap, quietly = TRUE)
+
+# ── Get the 3 Cell Ranger peaks overlapping STAT3 eRegulon regions at Otp ────
+# stat3_in_otp is already corrected to Cell Ranger peak boundaries (from fig4B)
+peak_names_otp <- GRangesToString(stat3_in_otp)
+cat("STAT3-linked peaks at Otp:", paste(peak_names_otp, collapse = ", "), "\n")
+
+# ── Extract normalised ATAC counts for those peaks from cluster 0 ─────────────
+mat_atac <- GetAssayData(seu_atac_c0, assay = "ATAC", slot = "data")
+
+# Keep only peaks present in the object
+peak_names_otp <- peak_names_otp[peak_names_otp %in% rownames(mat_atac)]
+cat("Peaks found in ATAC object:", length(peak_names_otp), "\n")
+
+mat_sub <- as.matrix(mat_atac[peak_names_otp, , drop = FALSE])
+
+# ── Average per condition ──────────────────────────────────────────────────────
+cond_vec <- seu_atac_c0$condition_clean
+avg_mat  <- sapply(levels(cond_vec), function(cond) {
+  cells <- colnames(mat_sub)[cond_vec == cond]
+  if (length(cells) == 0) return(rep(NA_real_, nrow(mat_sub)))
+  rowMeans(mat_sub[, cells, drop = FALSE])
+})
+
+# ── Z-score across conditions (by peak / row) ─────────────────────────────────
+zscore_mat <- t(scale(t(avg_mat)))
+
+# ── Tidy peak labels: show relative position to Otp window ───────────────────
+peak_gr     <- StringToGRanges(rownames(zscore_mat))
+peak_labels <- paste0(
+  "Peak ", seq_along(peak_names_otp), "\n",
+  seqnames(peak_gr), ":", format(start(peak_gr), big.mark = ","),
+  "–", format(end(peak_gr), big.mark = ",")
+)
+rownames(zscore_mat) <- peak_labels
+
+```
+
+```{r, fig4C.peak.heatmap, fig.height=4, fig.width=5, eval=T}
+
+colors_hm  <- colorRampPalette(c("blue", "white", "red"))(400)
+breaks_hm  <- seq(-2, 2, by = 0.01)
+
+pheatmap(zscore_mat,
+         main          = "STAT3-linked peak accessibility at Otp\n(Z-score, avg per condition, cluster 0)",
+         cluster_rows  = FALSE,
+         cluster_cols  = FALSE,
+         color         = colors_hm,
+         breaks        = breaks_hm,
+         border_color  = "white",
+         fontsize_row  = 7,
+         fontsize_col  = 8,
+         angle_col     = 45)
 
 ```
 
