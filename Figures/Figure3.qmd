@@ -99,15 +99,66 @@ pvh_cond_colors <- c(
   wt="#22d062", WT="#22d062"
 )
 
-# Raw ATAC group values for footprint plots — covers both raw and cleaned labels
+# Raw ATAC group values for footprint plots — covers raw (Leptin24hr/72hr),
+# alias (Leptin27hr/75hr), and cleaned (Lep27h/Lep75h) label variants
 arc_cond_colors_raw <- c(
-  ob="#e04516",    OB="#e04516",
+  ob="#e04516",     OB="#e04516",
   Leptin3hr="#8dc9d0",  Lep3h="#8dc9d0",
-  Leptin27hr="#23c6ea", Lep27h="#23c6ea",
-  Leptin75hr="#2127d9", Lep75h="#2127d9",
-  wt="#22d062",    WT="#22d062"
+  Leptin24hr="#23c6ea", Leptin27hr="#23c6ea", Lep27h="#23c6ea",
+  Leptin72hr="#2127d9", Leptin75hr="#2127d9", Lep75h="#2127d9",
+  wt="#22d062",     WT="#22d062"
 )
 ```
+
+# Cell / nuclei summary
+
+::: {.callout-note appearance="minimal"}
+Counts of cells/nuclei passing QC at two stages: the **unfiltered** objects (all cells from the original RNA and ATAC processing pipelines) and the **neuronal subset** used for all downstream figures (filtered to neuronal clusters in the merged multiome objects).
+:::
+
+```{r, cell.summary.table}
+
+# ── Filtered counts from the analysis objects ─────────────────────────────────
+ARC_tmp <- readRDS("../Data.Objects/final_ARC_merged_clusters_20250206.rds")
+PVH_tmp <- readRDS("../Data.Objects/PVH_clust_assign_subset_reUMAP_012225.rds")
+
+arc_rna_filt  <- sum(ARC_tmp$tech == "RNA")
+arc_atac_filt <- sum(ARC_tmp$tech == "ATAC")
+pvh_rna_filt  <- sum(PVH_tmp$tech == "RNA")
+pvh_atac_filt <- sum(PVH_tmp$tech == "ATAC")
+
+rm(ARC_tmp, PVH_tmp)
+
+# ── Unfiltered counts from the raw processed objects ─────────────────────────
+arc_rna_raw  <- readRDS("../Data.Objects/arc.combined_111621.RDS")
+arc_atac_raw <- readRDS("../Data.Objects/seuATAC_allSample_ARC.rds")
+pvh_rna_raw  <- readRDS("../Data.Objects/pvh.combined_111621.RDS")
+pvh_atac_raw <- readRDS("../Data.Objects/seuATAC_allSample_PVH.rds")
+
+arc_rna_unfilt  <- ncol(arc_rna_raw)
+arc_atac_unfilt <- ncol(arc_atac_raw)
+pvh_rna_unfilt  <- ncol(pvh_rna_raw)
+pvh_atac_unfilt <- ncol(pvh_atac_raw)
+
+rm(arc_rna_raw, arc_atac_raw, pvh_rna_raw, pvh_atac_raw)
+
+# ── Summary table ─────────────────────────────────────────────────────────────
+summary_tbl <- data.frame(
+  Region   = c("ARC", "ARC", "PVH", "PVH"),
+  Modality = c("RNA", "ATAC", "RNA", "ATAC"),
+  Unfiltered   = c(arc_rna_unfilt,  arc_atac_unfilt,  pvh_rna_unfilt,  pvh_atac_unfilt),
+  Neuronal_subset = c(arc_rna_filt, arc_atac_filt,    pvh_rna_filt,    pvh_atac_filt)
+)
+colnames(summary_tbl)[4] <- "Neuronal subset"
+
+knitr::kable(summary_tbl,
+             caption = "Cells / nuclei per region and modality",
+             format.args = list(big.mark = ","),
+             align = c("l", "l", "r", "r"))
+
+```
+
+---
 
 # Fig 3A — ARC: integrated chromatin and transcriptional landscapes
 
@@ -156,10 +207,9 @@ Dotplots and heatmaps show expression of canonical ARC neuronal marker genes acr
 
 ```{r}
 
-mark_ge <- c("Npy","Ccbe1","Dach2","Tmem26","Pomc",
-             "Sntb1","Vgll3","Tcf7l2","Sv2b","Hydin","Mcc",
-             "Col24a1","Pdgfd","Colec12","Lmo7","Megf11","Nfib","Qrfpr","Alk",
-             "Pdzrn3","Gem","Sim1","Bnc2","Sema3e","Unc13c","Lef1","Lhx9","Rgs6")
+#mark_ge <- c("Npy","Ccbe1","Dach2","Tmem26","Pomc","Sntb1","Vgll3","Tcf7l2","Sv2b","Hydin","Mcc","Col24a1","Pdgfd","Colec12","Lmo7","Megf11","Nfib","Qrfpr","Alk","Pdzrn3","Gem","Sim1","Bnc2","Sema3e","Unc13c","Lef1","Lhx9","Rgs6")
+
+mark_ge <- c("Npy","Alk","Dach2","Unc13c","Tmem26","Pomc","Sntb1","Vgll3","Rgs6","Tcf7l2","Sv2b","Col24a1","Pdgfd","Colec12","Gm20754","Lmo7","Nfib","Mcc","Qrfpr","Pdzrn3","Gem","Sim1","Bnc2","Sema3e","Lef1","Lhx9")
 
 # ── Helper: compute per-cluster mean expression and percent expressed ─────────
 calc_dotplot_dat <- function(seu, genes, assay = "RNA", slot = "data") {
@@ -308,8 +358,10 @@ Dotplots and heatmaps show expression of canonical PVH neuronal marker genes acr
 
 ```{r}
 
-mark_ge <- c("Agtr1a","Sv2c","Bdnf","Pde3a","Esr2","Iigp1","Plekhg1",
-             "Ebf3","Stk26","Lmcd1","Cpa6","Htr1d")
+#mark_ge <- c("Agtr1a","Sv2c","Bdnf","Pde3a","Esr2","Iigp1","Plekhg1","Ebf3","Stk26","Lmcd1","Cpa6","Htr1d")
+
+
+mark_ge <- c("Agtr1a","Sv2c","Gm49732","Bdnf","Pde3a","Gm39185","Esr2","Iigp1","Plekhg1","Ebf3","Cpa6","Htr1d", "Gm29771")
 
 seu_rna_pvh  <- subset(PVH, tech == "RNA")
 seu_rna_pvh$cluster  <- droplevels(seu_rna_pvh$cluster)
@@ -794,33 +846,54 @@ pwm_plus <- pwm[3]  # MA0144.1 = STAT3
 
 ARC_motif <- AddMotifs(seu_atac_sub, genome = BSgenome.Mmusculus.UCSC.mm10, pfm = pwm_plus)
 
-# ── Subset and run Footprint separately for each cluster ─────────────────────
-ARC_motif_c0 <- subset(ARC_motif, cluster == "0")
-ARC_motif_c0 <- Footprint(object = ARC_motif_c0, motif.name = "MA0144.1",
-                           genome = BSgenome.Mmusculus.UCSC.mm10)
+# ── Run Footprint on the full object, then subset per cluster ─────────────────
+# Footprint() needs all peaks across all clusters to sample all 4096 hexamers
+# for insertion bias correction. Subsetting before footprinting causes the
+# "Not all hexamers represented" error on small cluster subsets.
+# Run Footprint on the full object — subsetting before footprinting causes
+# "Not all hexamers represented" errors on small cluster subsets.
+# Cluster filtering is done per-plot via the idents argument instead.
+ARC_motif <- Footprint(object = ARC_motif, motif.name = "MA0144.1",
+                       genome = BSgenome.Mmusculus.UCSC.mm10, in.peaks = FALSE)
 
-ARC_motif_c3 <- subset(ARC_motif, cluster == "3")
-ARC_motif_c3 <- Footprint(object = ARC_motif_c3, motif.name = "MA0144.1",
-                           genome = BSgenome.Mmusculus.UCSC.mm10)
-
-ARC_motif_c17 <- subset(ARC_motif, cluster == "17")
-ARC_motif_c17 <- Footprint(object = ARC_motif_c17, motif.name = "MA0144.1",
-                            genome = BSgenome.Mmusculus.UCSC.mm10)
-
-# Backward-compatible alias so the plot chunk below still works
-ARC_motif_sub <- ARC_motif_c0
 
 ```
 
 ```{r, fig3F.footprint.function, eval=T}
 
 custom_footprint_plot3 <- function(object, features, group.by = NULL,
+                                   cluster.use = NULL, cluster.col = "cluster",
                                    normalization = "subtract") {
+
+  # Build a combined cluster__condition grouping so GetFootprintData runs on
+  # the full object (needed for hexamer coverage) but results can be filtered
+  # to a single cluster afterwards without using the broken idents path.
+  if (!is.null(cluster.use)) {
+    object$fp_group <- paste(object[[cluster.col]][, 1],
+                             object[[group.by]][, 1], sep = "__")
+    fp_group.by <- "fp_group"
+  } else {
+    fp_group.by <- group.by
+  }
 
   assay     <- Seurat::DefaultAssay(object = object)
   plot.data <- GetFootprintData(object = object, features = features,
-                                assay = assay, group.by = group.by)
+                                assay = assay, group.by = fp_group.by)
+
+  # GetFootprintData may return a list in some Signac versions — normalise to df
+  if (!is.data.frame(plot.data)) plot.data <- do.call(rbind, plot.data)
+
   plot.data %<>% dplyr::filter(abs(position) <= 200)
+
+  # Filter Observed rows to the requested cluster; keep all Expected rows
+  # (Expected rows are needed for bias normalisation regardless of cluster)
+  if (!is.null(cluster.use)) {
+    prefix    <- paste0(cluster.use, "__")
+    keep      <- (plot.data$class == "Observed" & grepl(paste0("^", prefix), plot.data$group)) |
+                  plot.data$class == "Expected"
+    plot.data <- plot.data[keep, ]
+    plot.data$group <- sub(paste0("^", prefix), "", plot.data$group)
+  }
 
   motif.sizes <- Signac:::GetMotifSize(object = object, features = features, assay = assay)
   obs    <- plot.data[plot.data$class == "Observed", ]
@@ -837,6 +910,17 @@ custom_footprint_plot3 <- function(object, features, group.by = NULL,
     correction.vec <- setNames(expect$norm.value, paste(expect$position, expect$feature))
     obs$norm.value <- obs$norm.value - correction.vec[paste(obs$position, obs$feature)]
   }
+
+  # Recode raw object condition labels to display labels
+  obs$group <- dplyr::recode(obs$group,
+    "Leptin3hr"  = "Lep3h",
+    "Leptin24hr" = "Lep27h",
+    "Leptin72hr" = "Lep75h",
+    "Leptin27hr" = "Lep27h",
+    "Leptin75hr" = "Lep75h",
+    "ob"         = "OB",
+    "wt"         = "WT"
+  )
 
   i <- 1
   df <- obs[obs$feature == features[[i]], ]
@@ -875,9 +959,8 @@ custom_footprint_plot3 <- function(object, features, group.by = NULL,
 
 ```{R, fig3F.ARC.Cluster0.STAT3.accessibility, fig.height=10, fig.width=15, eval=T}
 
-ARC_motif_c0$group <- clean_conditions_rna(ARC_motif_c0$group)
-
-custom_footprint_plot3(ARC_motif_c0, features = "MA0144.1", group.by = "group") +
+custom_footprint_plot3(ARC_motif, features = "MA0144.1", group.by = "group",
+                       cluster.use = "0", cluster.col = "cluster") +
   plot_annotation("STAT3 motif accessibility — Cluster 0 (AgRP / LepR neurons)")
 
 ```
@@ -886,9 +969,8 @@ custom_footprint_plot3(ARC_motif_c0, features = "MA0144.1", group.by = "group") 
 
 ```{R, fig3F.ARC.Cluster3.STAT3.accessibility, fig.height=10, fig.width=15, eval=T}
 
-ARC_motif_c3$group <- clean_conditions_rna(ARC_motif_c3$group)
-
-custom_footprint_plot3(ARC_motif_c3, features = "MA0144.1", group.by = "group") +
+custom_footprint_plot3(ARC_motif, features = "MA0144.1", group.by = "group",
+                       cluster.use = "3", cluster.col = "cluster") +
   plot_annotation("STAT3 motif accessibility — Cluster 3 (POMC / LepR neurons)")
 
 ```
@@ -897,9 +979,8 @@ custom_footprint_plot3(ARC_motif_c3, features = "MA0144.1", group.by = "group") 
 
 ```{R, fig3F.ARC.Cluster17.STAT3.accessibility, fig.height=10, fig.width=15, eval=T}
 
-ARC_motif_c17$group <- clean_conditions_rna(ARC_motif_c17$group)
-
-custom_footprint_plot3(ARC_motif_c17, features = "MA0144.1", group.by = "group") +
+custom_footprint_plot3(ARC_motif, features = "MA0144.1", group.by = "group",
+                       cluster.use = "17", cluster.col = "cluster") +
   plot_annotation("STAT3 motif accessibility — Cluster 17 (BNC2 / LepR neurons)")
 
 ```
