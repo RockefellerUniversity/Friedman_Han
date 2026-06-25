@@ -93,9 +93,9 @@ arc_cond_colors <- c(
 # PVH
 pvh_cond_colors <- c(
   ob="#e04516", OB="#e04516",
-  lep3h="#cdd781",
-  lep27h="#B4B415",
-  lep75h="#f1ca07",
+  lep3h="#cdd781",  Lep3h="#cdd781",
+  lep27h="#B4B415", Lep27h="#B4B415",
+  lep75h="#f1ca07", Lep75h="#f1ca07",
   wt="#22d062", WT="#22d062"
 )
 
@@ -108,6 +108,16 @@ arc_cond_colors_raw <- c(
   Leptin72hr="#2127d9", Leptin75hr="#2127d9", Lep75h="#2127d9",
   wt="#22d062",     WT="#22d062"
 )
+
+# Shared helper: recode raw condition labels to display labels
+recode_cond <- function(x) {
+  x <- gsub("leptinARC3h|Leptin3hr",   "Lep3h",  x)
+  x <- gsub("leptinARC24h|Leptin24hr", "Lep27h", x)
+  x <- gsub("leptinARC72h|Leptin72hr", "Lep75h", x)
+  x <- gsub("^ob$", "OB", x)
+  x <- gsub("^wt$", "WT", x)
+  x
+}
 ```
 
 # Cell / nuclei summary
@@ -173,18 +183,95 @@ ARC <- readRDS("../Data.Objects/final_ARC_merged_clusters_20250206.rds")
 
 ```
 
-```{R, fig3A.ARC.UMAP, fig.height=10, fig.width=15, eval=T}
+```{R, fig3A.ARC.UMAP.prep}
 
 ARC$cluster <- factor(ARC$cluster, levels=as.character(sort(as.numeric(unique(levels(ARC$cluster))))))
 
-DimPlot(ARC, split.by = "tech", group.by = "cluster")
+# Unified cleaned condition label for RNA (condition) and ATAC (group) cells
+ARC$condition_display <- ifelse(
+  ARC$tech == "RNA",
+  recode_cond(ARC$condition),
+  recode_cond(ARC$group)
+)
 
 Idents(ARC) <- "cluster"
 ```
 
-```{r}
-#DimPlot(ARC, group.by = c("group"))
+::: {.panel-tabset}
 
+### By cluster
+
+```{R, fig3A.ARC.UMAP.cluster, fig.height=10, fig.width=15, eval=T}
+DimPlot(ARC, split.by = "tech", group.by = "cluster")
+```
+
+### By condition
+
+```{R, fig3A.ARC.UMAP.condition, fig.height=10, fig.width=15, eval=T}
+DimPlot(ARC, split.by = "tech", group.by = "condition_display") +
+  scale_color_manual(values = arc_cond_colors_raw)
+```
+
+### By hash ID
+
+```{R, fig3A.ARC.UMAP.hash, fig.height=10, fig.width=15, eval=T}
+DimPlot(ARC, split.by = "tech", group.by = "hash.ID")
+```
+
+:::
+
+### Harmony re-integration with condition as covariate (exploratory)
+
+::: {.callout-note appearance="minimal"}
+The original co-embedding used no batch correction (PCA on RNA HVGs → UMAP). This section re-runs Harmony on the existing PCA embedding correcting for condition, to assess whether the condition-axis separation reflects biology or a technical effect. This object is **not** used for any downstream analyses.
+:::
+
+```{r, fig3A.ARC.harmony.run, message=FALSE, warning=FALSE}
+library(harmony, quietly = TRUE)
+
+# condition_display already built above — copy to working object
+ARC_h <- ARC
+
+ARC_h <- RunHarmony(
+  ARC_h,
+  group.by.vars  = "condition_display",
+  reduction      = "pca",
+  reduction.save = "harmony_cond",
+  verbose        = FALSE
+)
+
+ARC_h <- RunUMAP(ARC_h, reduction = "harmony_cond", dims = 1:30,
+                 reduction.name = "umap_harmony_cond", verbose = FALSE)
+```
+
+::: {.panel-tabset}
+
+### By cluster
+
+```{r, fig3A.ARC.harmony.cluster, fig.height=10, fig.width=15}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", split.by = "tech",
+        group.by = "cluster")
+```
+
+### By condition
+
+```{r, fig3A.ARC.harmony.condition, fig.height=10, fig.width=15}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", split.by = "tech",
+        group.by = "condition_display") +
+  scale_color_manual(values = arc_cond_colors_raw)
+```
+
+### By hash ID
+
+```{r, fig3A.ARC.harmony.hash, fig.height=10, fig.width=15}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", split.by = "tech",
+        group.by = "hash.ID")
+```
+
+:::
+
+```{r}
+rm(ARC_h)
 ```
 
 ```{r, fig3A.ARC.cell.counts}
@@ -332,10 +419,88 @@ PVH <- readRDS("../Data.Objects/PVH_clust_assign_subset_reUMAP_012225.rds")
 
 ```
 
-```{R, fig3B.PVH.UMAP, fig.height=10, fig.width=15, eval=T}
+```{R, fig3B.PVH.UMAP.prep}
 PVH$cluster <- factor(PVH$cluster, levels=as.character(sort(as.numeric(unique(levels(PVH$cluster))))))
 
+PVH$condition_display <- ifelse(
+  PVH$tech == "RNA",
+  recode_cond(PVH$condition),
+  recode_cond(PVH$group)
+)
+```
+
+::: {.panel-tabset}
+
+### By cluster
+
+```{R, fig3B.PVH.UMAP.cluster, fig.height=10, fig.width=15, eval=T}
 DimPlot(PVH, split.by = "tech", group.by = "cluster")
+```
+
+### By condition
+
+```{R, fig3B.PVH.UMAP.condition, fig.height=10, fig.width=15, eval=T}
+DimPlot(PVH, split.by = "tech", group.by = "condition_display") +
+  scale_color_manual(values = pvh_cond_colors)
+```
+
+### By hash ID
+
+```{R, fig3B.PVH.UMAP.hash, fig.height=10, fig.width=15, eval=T}
+DimPlot(PVH, split.by = "tech", group.by = "hash.ID")
+```
+
+:::
+
+### Harmony re-integration with condition as covariate (exploratory)
+
+::: {.callout-note appearance="minimal"}
+The original co-embedding used no batch correction (PCA on RNA HVGs → UMAP). This section re-runs Harmony on the existing PCA embedding correcting for condition, to assess whether the condition-axis separation reflects biology or a technical effect. This object is **not** used for any downstream analyses.
+:::
+
+```{r, fig3B.PVH.harmony.run, message=FALSE, warning=FALSE}
+PVH_h <- PVH
+
+PVH_h <- RunHarmony(
+  PVH_h,
+  group.by.vars  = "condition_display",
+  reduction      = "pca",
+  reduction.save = "harmony_cond",
+  verbose        = FALSE
+)
+
+PVH_h <- RunUMAP(PVH_h, reduction = "harmony_cond", dims = 1:30,
+                 reduction.name = "umap_harmony_cond", verbose = FALSE)
+```
+
+::: {.panel-tabset}
+
+### By cluster
+
+```{r, fig3B.PVH.harmony.cluster, fig.height=10, fig.width=15}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", split.by = "tech",
+        group.by = "cluster")
+```
+
+### By condition
+
+```{r, fig3B.PVH.harmony.condition, fig.height=10, fig.width=15}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", split.by = "tech",
+        group.by = "condition_display") +
+  scale_color_manual(values = pvh_cond_colors)
+```
+
+### By hash ID
+
+```{r, fig3B.PVH.harmony.hash, fig.height=10, fig.width=15, eval=T}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", split.by = "tech",
+        group.by = "hash.ID")
+```
+
+:::
+
+```{r}
+rm(PVH_h)
 ```
 
 ```{r, fig3B.PVH.cell.counts}
@@ -368,6 +533,18 @@ seu_rna_pvh$cluster  <- droplevels(seu_rna_pvh$cluster)
 
 seu_atac_pvh <- subset(PVH, tech == "ATAC")
 seu_atac_pvh$cluster <- droplevels(seu_atac_pvh$cluster)
+
+# Gene availability check
+rna_genes  <- rownames(seu_rna_pvh)
+atac_genes <- rownames(seu_atac_pvh)
+
+gene_check <- data.frame(
+  Gene        = mark_ge,
+  In_RNA      = mark_ge %in% rna_genes,
+  In_ATAC     = mark_ge %in% atac_genes
+)
+
+knitr::kable(gene_check, caption = "PVH marker gene availability in RNA and ATAC assays")
 
 ```
 
