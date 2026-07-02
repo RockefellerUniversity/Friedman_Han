@@ -110,10 +110,12 @@ arc_cond_colors_raw <- c(
 )
 
 # Shared helper: recode raw condition labels to display labels
+# Covers ARC (leptinARC*) and PVH (leptinPVH*) prefix variants plus
+# Leptin*hr variants from the ATAC group column
 recode_cond <- function(x) {
-  x <- gsub("leptinARC3h|Leptin3hr",   "Lep3h",  x)
-  x <- gsub("leptinARC24h|Leptin24hr", "Lep27h", x)
-  x <- gsub("leptinARC72h|Leptin72hr", "Lep75h", x)
+  x <- gsub("leptinARC3h|leptinPVH3h|Leptin3hr",    "Lep3h",  x)
+  x <- gsub("leptinARC24h|leptinPVH24h|Leptin24hr",  "Lep27h", x)
+  x <- gsub("leptinARC72h|leptinPVH72h|Leptin72hr",  "Lep75h", x)
   x <- gsub("^ob$", "OB", x)
   x <- gsub("^wt$", "WT", x)
   x
@@ -197,25 +199,89 @@ ARC$condition_display <- ifelse(
 Idents(ARC) <- "cluster"
 ```
 
-::: {.panel-tabset}
+```{r, fig3A.ARC.UMAP.palette}
+# Build dual-shade palettes: ATAC = full colour, RNA = lightened version
+lighten <- function(hex, amount = 0.5) {
+  rgb <- col2rgb(hex) / 255
+  rgb_light <- rgb + (1 - rgb) * amount
+  rgb(rgb_light[1], rgb_light[2], rgb_light[3])
+}
 
-### By cluster
+# Cluster palette — one colour per cluster level
+arc_cluster_levels <- levels(ARC$cluster)
+base_cluster_cols  <- setNames(
+  scales::hue_pal()(length(arc_cluster_levels)),
+  arc_cluster_levels
+)
 
-```{R, fig3A.ARC.UMAP.cluster, fig.height=10, fig.width=15, eval=T}
-DimPlot(ARC, split.by = "tech", group.by = "cluster")
+# tech__cluster combined key for dual-shade plot
+arc_cluster_dual <- c(
+  setNames(base_cluster_cols,                          paste0("ATAC__", arc_cluster_levels)),
+  setNames(sapply(base_cluster_cols, lighten), paste0("RNA__",  arc_cluster_levels))
+)
+
+# Condition dual-shade palette
+arc_cond_levels <- unique(ARC$condition_display)
+base_cond_cols  <- arc_cond_colors_raw[arc_cond_levels]
+base_cond_cols  <- base_cond_cols[!is.na(base_cond_cols)]
+
+arc_cond_dual <- c(
+  setNames(base_cond_cols,                          paste0("ATAC__", names(base_cond_cols))),
+  setNames(sapply(base_cond_cols, lighten), paste0("RNA__",  names(base_cond_cols)))
+)
+
+# Combined key columns used in dual-shade plots
+ARC$tech_cluster   <- paste0(ARC$tech, "__", ARC$cluster)
+ARC$tech_condition <- paste0(ARC$tech, "__", ARC$condition_display)
 ```
 
-### By condition
+::: {.panel-tabset}
 
-```{R, fig3A.ARC.UMAP.condition, fig.height=10, fig.width=15, eval=T}
-DimPlot(ARC, split.by = "tech", group.by = "condition_display") +
+### 1 — By tech
+
+```{R, fig3A.ARC.UMAP.tech, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "tech")
+```
+
+### 2 — By cluster
+
+```{R, fig3A.ARC.UMAP.cluster, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{R, fig3A.ARC.UMAP.condition, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "condition_display") +
   scale_color_manual(values = arc_cond_colors_raw)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{R, fig3A.ARC.UMAP.cluster.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "tech_cluster") +
+  scale_color_manual(values = arc_cluster_dual) +
+  guides(color = guide_legend(
+    title = "Cluster",
+    override.aes = list(size = 3),
+    # show only ATAC entries in legend (drop RNA__ duplicates)
+    label.theme = element_text(size = 8)
+  )) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{R, fig3A.ARC.UMAP.condition.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "tech_condition") +
+  scale_color_manual(values = arc_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
 ```
 
 ### By hash ID
 
-```{R, fig3A.ARC.UMAP.hash, fig.height=10, fig.width=15, eval=T}
-DimPlot(ARC, split.by = "tech", group.by = "hash.ID")
+```{R, fig3A.ARC.UMAP.hash, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "hash.ID")
 ```
 
 :::
@@ -244,28 +310,53 @@ ARC_h <- RunUMAP(ARC_h, reduction = "harmony_cond", dims = 1:30,
                  reduction.name = "umap_harmony_cond", verbose = FALSE)
 ```
 
-::: {.panel-tabset}
-
-### By cluster
-
-```{r, fig3A.ARC.harmony.cluster, fig.height=10, fig.width=15}
-DimPlot(ARC_h, reduction = "umap_harmony_cond", split.by = "tech",
-        group.by = "cluster")
+```{r, fig3A.ARC.harmony.keys}
+# tech__ keys carry over from ARC copy; rebuild for ARC_h to be safe
+ARC_h$tech_cluster   <- paste0(ARC_h$tech, "__", ARC_h$cluster)
+ARC_h$tech_condition <- paste0(ARC_h$tech, "__", ARC_h$condition_display)
 ```
 
-### By condition
+::: {.panel-tabset}
 
-```{r, fig3A.ARC.harmony.condition, fig.height=10, fig.width=15}
-DimPlot(ARC_h, reduction = "umap_harmony_cond", split.by = "tech",
-        group.by = "condition_display") +
+### 1 — By tech
+
+```{r, fig3A.ARC.harmony.tech, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "tech")
+```
+
+### 2 — By cluster
+
+```{r, fig3A.ARC.harmony.cluster, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{r, fig3A.ARC.harmony.condition, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "condition_display") +
   scale_color_manual(values = arc_cond_colors_raw)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{r, fig3A.ARC.harmony.cluster.dual, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "tech_cluster") +
+  scale_color_manual(values = arc_cluster_dual) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{r, fig3A.ARC.harmony.condition.dual, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "tech_condition") +
+  scale_color_manual(values = arc_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
 ```
 
 ### By hash ID
 
-```{r, fig3A.ARC.harmony.hash, fig.height=10, fig.width=15}
-DimPlot(ARC_h, reduction = "umap_harmony_cond", split.by = "tech",
-        group.by = "hash.ID")
+```{r, fig3A.ARC.harmony.hash, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "hash.ID")
 ```
 
 :::
@@ -422,32 +513,85 @@ PVH <- readRDS("../Data.Objects/PVH_clust_assign_subset_reUMAP_012225.rds")
 ```{R, fig3B.PVH.UMAP.prep}
 PVH$cluster <- factor(PVH$cluster, levels=as.character(sort(as.numeric(unique(levels(PVH$cluster))))))
 
+# Diagnostic: print raw label values so naming variants can be confirmed
+cat("PVH RNA condition raw values: ", paste(sort(unique(PVH$condition[PVH$tech == "RNA"])), collapse = ", "), "\n")
+cat("PVH ATAC group raw values:    ", paste(sort(unique(PVH$group[PVH$tech    == "ATAC"])), collapse = ", "), "\n")
+
 PVH$condition_display <- ifelse(
   PVH$tech == "RNA",
   recode_cond(PVH$condition),
   recode_cond(PVH$group)
 )
+
+cat("PVH condition_display values: ", paste(sort(unique(PVH$condition_display)), collapse = ", "), "\n")
+```
+
+```{r, fig3B.PVH.UMAP.palette}
+pvh_cluster_levels <- levels(PVH$cluster)
+base_pvh_cluster_cols <- setNames(
+  scales::hue_pal()(length(pvh_cluster_levels)),
+  pvh_cluster_levels
+)
+
+pvh_cluster_dual <- c(
+  setNames(base_pvh_cluster_cols,                          paste0("ATAC__", pvh_cluster_levels)),
+  setNames(sapply(base_pvh_cluster_cols, lighten), paste0("RNA__",  pvh_cluster_levels))
+)
+
+pvh_cond_levels <- unique(PVH$condition_display)
+base_pvh_cond_cols <- pvh_cond_colors[pvh_cond_levels]
+base_pvh_cond_cols <- base_pvh_cond_cols[!is.na(base_pvh_cond_cols)]
+
+pvh_cond_dual <- c(
+  setNames(base_pvh_cond_cols,                          paste0("ATAC__", names(base_pvh_cond_cols))),
+  setNames(sapply(base_pvh_cond_cols, lighten), paste0("RNA__",  names(base_pvh_cond_cols)))
+)
+
+PVH$tech_cluster   <- paste0(PVH$tech, "__", PVH$cluster)
+PVH$tech_condition <- paste0(PVH$tech, "__", PVH$condition_display)
 ```
 
 ::: {.panel-tabset}
 
-### By cluster
+### 1 — By tech
 
-```{R, fig3B.PVH.UMAP.cluster, fig.height=10, fig.width=15, eval=T}
-DimPlot(PVH, split.by = "tech", group.by = "cluster")
+```{R, fig3B.PVH.UMAP.tech, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "tech")
 ```
 
-### By condition
+### 2 — By cluster
 
-```{R, fig3B.PVH.UMAP.condition, fig.height=10, fig.width=15, eval=T}
-DimPlot(PVH, split.by = "tech", group.by = "condition_display") +
+```{R, fig3B.PVH.UMAP.cluster, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{R, fig3B.PVH.UMAP.condition, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "condition_display") +
   scale_color_manual(values = pvh_cond_colors)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{R, fig3B.PVH.UMAP.cluster.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "tech_cluster") +
+  scale_color_manual(values = pvh_cluster_dual) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{R, fig3B.PVH.UMAP.condition.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "tech_condition") +
+  scale_color_manual(values = pvh_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
 ```
 
 ### By hash ID
 
-```{R, fig3B.PVH.UMAP.hash, fig.height=10, fig.width=15, eval=T}
-DimPlot(PVH, split.by = "tech", group.by = "hash.ID")
+```{R, fig3B.PVH.UMAP.hash, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "hash.ID")
 ```
 
 :::
@@ -473,28 +617,52 @@ PVH_h <- RunUMAP(PVH_h, reduction = "harmony_cond", dims = 1:30,
                  reduction.name = "umap_harmony_cond", verbose = FALSE)
 ```
 
-::: {.panel-tabset}
-
-### By cluster
-
-```{r, fig3B.PVH.harmony.cluster, fig.height=10, fig.width=15}
-DimPlot(PVH_h, reduction = "umap_harmony_cond", split.by = "tech",
-        group.by = "cluster")
+```{r, fig3B.PVH.harmony.keys}
+PVH_h$tech_cluster   <- paste0(PVH_h$tech, "__", PVH_h$cluster)
+PVH_h$tech_condition <- paste0(PVH_h$tech, "__", PVH_h$condition_display)
 ```
 
-### By condition
+::: {.panel-tabset}
 
-```{r, fig3B.PVH.harmony.condition, fig.height=10, fig.width=15}
-DimPlot(PVH_h, reduction = "umap_harmony_cond", split.by = "tech",
-        group.by = "condition_display") +
+### 1 — By tech
+
+```{r, fig3B.PVH.harmony.tech, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "tech")
+```
+
+### 2 — By cluster
+
+```{r, fig3B.PVH.harmony.cluster, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{r, fig3B.PVH.harmony.condition, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "condition_display") +
   scale_color_manual(values = pvh_cond_colors)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{r, fig3B.PVH.harmony.cluster.dual, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "tech_cluster") +
+  scale_color_manual(values = pvh_cluster_dual) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{r, fig3B.PVH.harmony.condition.dual, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "tech_condition") +
+  scale_color_manual(values = pvh_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
 ```
 
 ### By hash ID
 
-```{r, fig3B.PVH.harmony.hash, fig.height=10, fig.width=15, eval=T}
-DimPlot(PVH_h, reduction = "umap_harmony_cond", split.by = "tech",
-        group.by = "hash.ID")
+```{r, fig3B.PVH.harmony.hash, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "hash.ID")
 ```
 
 :::
@@ -515,6 +683,65 @@ atac_tab <- table(Cluster   = pvh_meta$cluster[pvh_meta$tech == "ATAC"],
 knitr::kable(atac_tab, caption = "PVH ATAC — cells per cluster × condition")
 ```
 
+## Cluster 22 candidate marker review
+
+::: {.callout-note appearance="minimal"}
+Exploratory review of candidate marker genes for PVH cluster 22. Dotplot, violin plots, and feature plots assess expression specificity across all clusters in the RNA modality.
+:::
+
+```{r, fig3B.PVH.c22.prep}
+c22_genes <- c("Hhip", "Cntnap5c", "Nxph1", "Cybc1", "Syt12")
+
+seu_rna_pvh_all <- subset(PVH, tech == "RNA")
+seu_rna_pvh_all$cluster <- droplevels(seu_rna_pvh_all$cluster)
+Idents(seu_rna_pvh_all) <- "cluster"
+
+# Check availability
+cat("Cluster 22 candidate genes in RNA matrix:\n")
+cat(paste(c22_genes, "->", c22_genes %in% rownames(seu_rna_pvh_all), collapse = "\n"), "\n")
+c22_genes_present <- c22_genes[c22_genes %in% rownames(seu_rna_pvh_all)]
+```
+
+::: {.panel-tabset}
+
+### Dotplot — all clusters
+
+```{r, fig3B.PVH.c22.dotplot, fig.height=8, fig.width=10}
+calPlot_c22 <- calc_dotplot_dat(seu_rna_pvh_all, c22_genes_present)
+
+ggplot(calPlot_c22, aes(x = gene, y = cluster, size = prop, color = exp)) +
+  geom_point() +
+  labs(x = "", y = "Cluster", color = "Mean expression", size = "% expressed",
+       title = "PVH cluster 22 candidate genes — RNA") +
+  scale_color_gradient(low = "white", high = "darkblue") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  geom_rect(data = data.frame(xmin = 0.5, xmax = length(c22_genes_present) + 0.5,
+                               ymin = which(levels(calPlot_c22$cluster) == "22") - 0.5,
+                               ymax = which(levels(calPlot_c22$cluster) == "22") + 0.5),
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            inherit.aes = FALSE, fill = NA, color = "red", linewidth = 0.5)
+```
+
+### Violin plots
+
+```{r, fig3B.PVH.c22.violin, fig.height=10, fig.width=14}
+VlnPlot(seu_rna_pvh_all, features = c22_genes_present,
+        pt.size = 0, ncol = 3) &
+  theme(axis.text.x = element_text(size = 7),
+        axis.title.x = element_blank())
+```
+
+### Feature plots
+
+```{r, fig3B.PVH.c22.feature, fig.height=10, fig.width=14}
+FeaturePlot(seu_rna_pvh_all, features = c22_genes_present,
+            ncol = 3, order = TRUE) &
+  scale_color_gradient(low = "lightgrey", high = "darkblue")
+```
+
+:::
+
 ## Marker gene expression across modalities
 
 ::: {.callout-tip appearance="minimal"}
@@ -526,7 +753,7 @@ Dotplots and heatmaps show expression of canonical PVH neuronal marker genes acr
 #mark_ge <- c("Agtr1a","Sv2c","Bdnf","Pde3a","Esr2","Iigp1","Plekhg1","Ebf3","Stk26","Lmcd1","Cpa6","Htr1d")
 
 
-mark_ge <- c("Agtr1a","Sv2c","Gm49732","Bdnf","Pde3a","Gm39185","Esr2","Iigp1","Plekhg1","Ebf3","Cpa6","Htr1d", "Gm29771")
+mark_ge <- c("Agtr1a","Sv2c","Gm49732","Bdnf","Pde3a","Gm39185","Esr2","Iigp1","Plekhg1","Ebf3","Cpa6","Htr1d", "Gm29771","Cntnap5c", "Nxph1")
 
 seu_rna_pvh  <- subset(PVH, tech == "RNA")
 seu_rna_pvh$cluster  <- droplevels(seu_rna_pvh$cluster)
