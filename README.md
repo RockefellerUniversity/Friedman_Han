@@ -2,10 +2,10 @@
 
 Single-cell multi-omics identify OTP and NOVA1 as regulators of leptin action in hypothalamic circuits
 
-[![BioRxiv](https://zenodo.org/badge/doi/10.5281/zenodo.4018965.svg)](TBD)
-[![GEO](https://pepy.tech/badge/spacec)](TBD)
+[![bioRxiv](https://img.shields.io/badge/bioRxiv-coming%20soon-lightgrey)](TBD)
+[![GEO](https://img.shields.io/badge/GEO-coming%20soon-lightgrey)](TBD)
 
-![Overview](https://github.com/RockefellerUniversity/Friedman_Han/tree/dev/pic/overview.png)
+![Overview](https://raw.githubusercontent.com/RockefellerUniversity/Friedman_Han/dev/pic/overview.png)
 
 
 # Abstract
