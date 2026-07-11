@@ -2,7 +2,6 @@
 
 Single-cell multi-omics identify OTP and NOVA1 as regulators of leptin action in hypothalamic circuits
 
-[![Stars](https://img.shields.io/github/stars/yuqiyuqitan/SPACEc?style=flat&logo=GitHub&color=yellow)](https://github.com/RockefellerUniversity/Friedman_Han/tree/main)
 [![BioRxiv](https://zenodo.org/badge/doi/10.5281/zenodo.4018965.svg)](TBD)
 [![GEO](https://pepy.tech/badge/spacec)](TBD)
 
@@ -18,4 +17,4 @@ Leptin acts directly and indirectly on diverse neuronal populations to regulate 
 
 ## Contributors
 
-[!Han L. Tan](https://scholar.google.com/citations?user=vSOU2L0AAAAJ&hl=en), [!Yuqi Tan](https://scholar.google.com/citations?user=zNOpmasAAAAJ&hl=en), [!Jenelys Ruiz-Ortiz](https://scholar.google.com/citations?hl=en&user=tuGE2egAAAAJ), [!Matt Paul](https://scholar.google.com/citations?user=M4z_6poAAAAJ&hl=en), [!Ji-Dung Luo](https://scholar.google.com/citations?hl=en&user=4wmnEI4AAAAJ) 
+[Han L. Tan](https://scholar.google.com/citations?user=vSOU2L0AAAAJ&hl=en), [Yuqi Tan](https://scholar.google.com/citations?user=zNOpmasAAAAJ&hl=en), [Jenelys Ruiz-Ortiz](https://scholar.google.com/citations?hl=en&user=tuGE2egAAAAJ), [Matt Paul](https://scholar.google.com/citations?user=M4z_6poAAAAJ&hl=en), [Ji-Dung Luo](https://scholar.google.com/citations?hl=en&user=4wmnEI4AAAAJ) 
