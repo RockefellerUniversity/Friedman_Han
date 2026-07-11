@@ -1,0 +1,253 @@
+---
+title: "leptin_arc_PT"
+author: "Yuqi Tan"
+date: "10/24/2021"
+output: html_document
+---
+
+```{r, message=FALSE}
+library(Seurat)
+library(Matrix)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(SeuratWrappers)
+set.seed(123)
+
+user_dir = "./"
+data_dir = user_dir + "Raw_data/"
+save_dir = user_dir + "Procesed_data/R/"
+```
+|             |     PVH     |
+| ----------- | ----------- |
+| all cells   | 25 clusters |
+| non-neuronal clusters | 19/23/24|
+| Neuronal clusters | 0/1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/20/21/22|
+| Neurons located outside the region   | 0/1/2/4/5/9/10/12/13/17 |
+| Neurons located within the region   | 3/6/7/8/11/14/15/16/18/20/21/22 |
+| Inhibitory neurons   | 20/21 |
+| Excitatory neurons  | 3/6/7/8/11/14/15/16/18/22| 
+
+
+```{r}
+#this runs on R4.1.0
+#load data from leptin treated
+#hashtag1 ARCH3H, hashtag2 PVH3H, hashtag5 ARCH24h, hashtag6 PVH24h, hashtag7 ARCH72h, hashtag8 PVH72H 
+
+all_singlets = readRDS(paste0(save_dir, "leptin_allcell_sinlgets.rds"))
+pvh_leptin <- subset(all_singlets, idents = c("Hashtag2","Hashtag6","Hashtag8"))
+dim(pvh_leptin)
+#[1] 23820  3649
+rm(all_singlets)
+pvh_leptin <- NormalizeData(pvh_leptin, normalization.method = "LogNormalize", scale.factor = 10000)
+
+#load data from OB
+pvh_ob = readRDS(paste0(save_dir, "ob_PVH_sinlgets.rds"))
+pvh_ob <- NormalizeData(pvh_ob, normalization.method = "LogNormalize", scale.factor = 10000)
+
+#load data from WT
+pvh_wt = readRDS(paste0(save_dir, "wt_PVH_sinlgets.rds"))
+pvh_wt <- NormalizeData(pvh_wt, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{R batch_correction}
+#integrate the three conditions with batch corrected 
+pvh.list = list(pvh_ob, pvh_wt, pvh_leptin)
+
+#Slc32a1 is in the expression
+all_genes <- lapply(pvh.list, row.names) %>% Reduce(intersect, .)
+all_genes = all_genes[1:(length(all_genes)-2)] #remove hashtags here?
+
+#"Slc32a1" does not in top 4000 variable genes
+pvh.anchors <- FindIntegrationAnchors(object.list = pvh.list, anchor.features = all_genes)
+
+#renaming 
+pvh.combined <- IntegrateData(anchorset = pvh.anchors, features = all_genes)
+
+#standard RNA processing
+DefaultAssay(pvh.combined) = "integrated"
+pvh.combined = ScaleData(pvh.combined, verbose = FALSE)
+pvh.combined <- RunPCA(pvh.combined, npcs = 50, verbose = FALSE)
+ElbowPlot(pvh.combined) #take 30PC
+pvh.combined <- RunUMAP(pvh.combined, reduction = "pca", dims = 1:20)
+pvh.combined <- FindNeighbors(pvh.combined, reduction = "pca", dims = 1:20)
+pvh.combined <- FindClusters(pvh.combined, resolution = 0.55)
+
+#hashtag1 ARCH3H, hashtag2 PVH3H, hashtag5 ARCH24h, hashtag6 PVH24h, hashtag7 ARCH72h, hashtag8 PVH72H 
+pvh.combined@meta.data$time = ''
+hashtag_list = paste0('Hashtag',c(1,5,7, 2,6,8))
+reg_time = c(paste0('ARC', c('3h', '24h','72h')),paste0('PVH', c('3h', '24h','72h')))
+conv_table =data.frame(hashtag_list, reg_time)
+
+for (i in 4:6) {
+  pvh.combined@meta.data[which(pvh.combined@meta.data$orig.ident == "leptin" & pvh.combined@meta.data$Hashtag_classification == conv_table$hashtag_list[i]),  'time'] = conv_table$reg_time[i]
+}
+
+pvh.combined@meta.data$condition = paste0(pvh.combined@meta.data$orig.ident, pvh.combined@meta.data$time)
+
+p1 <- DimPlot(pvh.combined, reduction = "umap", group.by = "condition")
+p2 <- DimPlot(pvh.combined, reduction = "umap", label = TRUE, repel = TRUE)
+p1 + p2
+
+#plot by cell percentage
+ggplot(pvh.combined@meta.data, aes(x=seurat_clusters, fill=condition)) + geom_bar(position = "fill") + theme_bw()
+
+#specific gene expression
+#look at one gene
+my_cols = RColorBrewer::brewer.pal(5, "Paired")
+#VlnPlot(pvh.combined, features = "Crh", split.by = "condition", group.by = "seurat_clusters", pt.size = 0, combine = FALSE, cols = my_cols)
+FeaturePlot(pvh.combined, features = "Crh")
+VlnPlot(pvh.combined, features = "Crh")
+
+saveRDS(pvh.combined, file = paste0(save_dir, "pvh.combined_111621.RDS"))
+```
+
+```{r}
+#subset by neuronal clusters defined by Han
+#True Neuronal Clusters in PVH (3,6,7,8,11,14,15,16,18,20,21,22)
+pvh.combined = readRDS(paste0(save_dir, "pvh.combined.neurons_111621.RDS"))
+Idents(object = pvh.combined) = pvh.combined@meta.data$seurat_clusters
+pvh_combined_exci = subset(pvh.combined, idents = c("3", "6","7", "8", "11","14", "15", "16", "18", "20","21","22"))
+#saveRDS(pvh_combined_exci, file = paste0(save_dir, "pvh.combined.excitatory_111621.RDS"))
+
+pvh_degs <- FindAllMarkers(pvh_combined_exci, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+```
+
+
+```{R, eval=FALSE}
+#look at all the PVH markers
+pvh_markers = c("Slc17a6", "rna_Slc32a1", "Gad1", "Gad2", "Sim1", "Bdnf", "rna_Glp1r", "Oxt", "Crh", "Ghr", "rna_Pdyn","rna_Mc4r", "Fos")
+VlnPlot(pvh.combined, features = pvh_markers, pt.size = 0, same.y.lims = TRUE, stack = TRUE, flip = TRUE)
+
+#find subcluster for cluster 7 
+pvh.combined = FindSubCluster(
+  pvh.combined,
+  7,
+  graph.name = 'integrated_snn',
+  subcluster.name = "sub.cluster",
+  resolution = 0.4,
+  algorithm = 1
+)
+
+DimPlot(pvh.combined, reduction = "umap", group.by = "sub.cluster")
+
+VlnPlot(pvh.combined, features = pvh_markers, pt.size = 0, same.y.lims = TRUE, stack = TRUE, flip = TRUE, group.by = 'sub.cluster')
+saveRDS(pvh.combined, file = paste0(save_dir, "pvh.combined_111621.RDS"))
+
+#this exceeds the memory
+
+Idents(object = pvh.combined) = pvh.combined@meta.data$sub.clusters
+pvh_combined_exci = subset(pvh.combined, idents = c("4", "5", "6", "8", "10", "12", "13", "14", "15", "16", "17", "7_1" ))
+saveRDS(pvh_combined_exci, file = paste0(save_dir, "pvh.combined.excitatory_111621.RDS"))
+
+DimPlot(pvh_combined_exci, reduction = "umap", group.by = "sub.cluster")
+VlnPlot(pvh_combined_exci, features = pvh_markers, pt.size = 0, same.y.lims = TRUE, stack = TRUE, flip = TRUE, group.by = 'sub.cluster')
+
+pvh_degs <- FindAllMarkers(pvh_combined_exci, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+#pvh.markers %>%
+#    group_by(cluster) %>%
+#    slice_max(n = 2, order_by = avg_log2FC)
+
+pvh_degs %>%
+    group_by(cluster) %>%
+    top_n(n = 5, wt = avg_log2FC) -> top5
+DoHeatmap(pvh_combined_exci, features = top5$gene) + NoLegend()
+
+#SaveH5Seurat(pvh_combined_exci, filename = "pvh_combined_exci.h5Seurat")
+#Convert("pvh_combined_exci.h5Seurat", dest = "h5ad")
+```
+
+```{r export files for trajectory analysis}
+library(SeuratDisk)
+pvh.combined = readRDS(paste0(save_dir, "pvh.combined_111621.RDS"))
+
+write.csv(Cells(pvh.combined), file = paste0(save_dir,"cellID_obs_PVH.csv") , row.names = FALSE)
+write.csv(Embeddings(pvh.combined, reduction = "umap"), file = paste0(save_dir,"cell_embeddings_PVH.csv"))
+write.csv(pvh.combined@meta.data, file = paste0(save_dir,"meta_data_PVH.csv"))
+
+#umap = pd.read_csv("umap.csv")
+#umap = umap.rename(columns = {'Unnamed: 0':'Cell ID'})
+```
+
+
+```{r construct gene regulatory network}
+library(epoch)
+library(singleCellNet)
+
+pvh.combined = readRDS(paste0(save_dir, "pvh.combined_111621.RDS"))
+metadata = read.csv("metadata_pvh_pt.csv")
+rownames(metadata) = as.vector(metadata$cellID)
+
+#find HVG
+pvh.combined <- FindVariableFeatures(pvh.combined , selection.method = "vst", nfeatures = 4000)
+
+expDat<-pvh.combined@assays$RNA@counts
+expDat = expDat[rowSums(expDat)!=0,] #remove dropout genes
+sampTab<-metadata
+
+# Find TFs
+mmTFs<-utils_loadObject(paste0(save_dir,"/mmTFs.rda"))
+#mmTFs<-intersect(rownames(expDat),mmTFs)
+
+# Only look at neurons
+#sampTab_neuron = sampTab[which(sampTab$seurat_clusters %in% c(3,6,7,8,11,14,15,16,18,20,21,22)),]
+#expDat_neuron = as.matrix(expDat[VariableFeatures(pvh.combined),rownames(sampTab_neuron)])
+
+sampTab_neuron = sampTab[which(sampTab$seurat_clusters %in% c(5)),]
+expDat_neuron = as.matrix(expDat[VariableFeatures(pvh.combined),rownames(sampTab_neuron)])
+#downsample and log-transform data
+
+expDat_neuron = trans_prop(expDat_neuron, total = 10000, dThresh = 0.25)
+expDat_neuron = expDat_neuron[rowSums(expDat_neuron)>0,]
+# Find dynamically expressed genes
+xdyn <- findDynGenes(expDat_neuron, sampTab_neuron, group_column="seurat_clusters", pseudotime_column="velocity_pseudotime")
+pThresh<-0.01
+dgenes<-names(xdyn$genes)[xdyn$genes<pThresh]
+
+mmTFs<-intersect(rownames(expDat_neuron),mmTFs)
+
+# Reconstruct and perform crossweighting
+grnDF <- reconstructGRN(expDat_neuron, mmTFs, dgenes, method="pearson", zThresh=3)
+grnDF <- crossweight(grnDF,expDat_neuron,xdyn,filter_thresh=0)
+
+xdyn<-define_epochs(xdyn,expDat_neuron,method="pseudotime",num_epochs=3)
+epoch_assignments<-assign_epochs(expDat_neuron,xdyn)
+dynamic_grn<-epochGRN(grnDF,epoch_assignments)
+
+#influential TFs
+gene_rank<-compute_pagerank(dynamic_grn,weight_column="weighted_score")
+another_gene_rank<-compute_betweenness_degree(dynamic_grn,weight_column="weighted_score")
+
+#add interactions
+dynamic_grn<-add_interaction_type(dynamic_grn)
+community_assignments<-find_communities(dynamic_grn)
+
+# First, smooth expression for a cleaner plot
+ccells <- xdyn$cells
+expSmoothed <- grnKsmooth(expDat_neuron, ccells, BW=0.03)
+
+# Plot a heatmap of the dynamic TFs
+tfstoplot<-intersect(dgenes,mmTFs)
+dynTFs<-xdyn
+dynTFs$genes<-dynTFs$genes[names(dynTFs$genes) %in% tfstoplot]
+
+pdf("~/Desktop/pvh_cluster5_top20_dynamicTF.pdf")
+hm_dyn(expSmoothed,dynTFs,topX=20)
+dev.off()
+
+#plot dynamic network
+plot_dynamic_network(dynamic_grn,mmTFs,only_TFs=TRUE,order=c("epoch1..epoch1","epoch2..epoch2","epoch3..epoch3"))
+
+pdf("~/Desktop/top5TFs_pvh.pdf")
+plot_top_regulators(dynamic_grn, gene_rank, mmTFs, numTopTFs=5, only_TFs=FALSE,order=c("epoch1..epoch1","epoch2..epoch2","epoch3..epoch3"))
+dev.off()
+```
+
+```{r}
+#de genes used for GO term analysis
+pvh_combined_neuron = subset(pvh.combined, idents = c("3", "6","7", "8", "11","14", "15", "16", "18", "22"))
+pvh_degs <- FindAllMarkers(pvh_combined_neuron, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.csv(pvh_degs, file = paste0(save_dir,"pvh_combined_neuron_seurat_degs.csv"))
+
+```
+

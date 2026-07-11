@@ -1,0 +1,979 @@
+---
+title: "manuscript_V4_figure_plotting_fig2"
+output: html_document
+date: "2026-02-02"
+---
+
+```{r library}
+# conda environment neurochat
+library(CellChat)
+library(patchwork)
+
+save_figure_path = './individual_fig/'
+save_obj_path = './dataObj/'
+
+# loading data for ARC
+save_dir = "./"
+arc.combined = readRDS(paste0(save_dir, "arc.combined_111621.RDS"))
+
+# to get the data frame signed with the cluster information
+marker_df = read.csv("marker_cluster.csv")
+colnames(marker_df)[2] = 'seurat_clusters'
+marker_df$seurat_clusters = as.character(marker_df$seurat_clusters)
+marker_df$clusters = as.character(paste(marker_df$Nucleus,marker_df$Marker, sep = "_"))
+
+arc.combined@meta.data$seurat_clusters = as.character(arc.combined@meta.data$seurat_clusters)
+marker_df_arc = marker_df[marker_df$Nucleus == 'ARC',]
+arc_combined_neuron = subset(arc.combined, idents = c("0","1","2","3","4","5", "6","7", "8","10", "11","12","13","14", "16", "17","18","19", "22"))
+# subset by this cluster: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,20,21,22
+arc_combined_neuron@meta.data$cellid = rownames(arc_combined_neuron@meta.data)
+meta_df = arc_combined_neuron@meta.data %>% left_join(marker_df_arc, by = "seurat_clusters")
+rownames(meta_df) = as.vector(meta_df$cellid)
+arc_combined_neuron@meta.data = meta_df
+
+
+lepR_cluster = c("0", "3", "17")
+non_lepR_cluster = c("1","2","4","5", "6","7", "8","10", "11","12","13","14", "16", "18","19", "22")
+arc_lepr = subset(arc_combined_neuron, idents = lepR_cluster)
+arc_nonlepr = subset(arc_combined_neuron, idents = non_lepR_cluster)
+```
+
+```{r function}
+run_cellchat <- function(cellchat){
+    CellChatDB <- CellChatDB.mouse
+    # secrted signaling
+    CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling", key = "annotation") 
+    # CellChatDB.use <- subsetDB(CellChatDB)
+    cellchat@DB <- CellChatDB.use
+    # subset the expression data of signaling genes for saving computation cost
+    cellchat <- subsetData(cellchat)
+    future::plan("multisession", workers = 4) # do parallel
+    cellchat <- identifyOverExpressedGenes(cellchat)
+    cellchat <- identifyOverExpressedInteractions(cellchat)
+    cellchat <- projectData(cellchat, PPI.mouse)
+    cellchat <- computeCommunProb(cellchat, type = "triMean", raw.use = FALSE)
+    cellchat <- filterCommunication(cellchat, min.cells = 10)
+    df.net <- subsetCommunication(cellchat)
+    cellchat <- computeCommunProbPathway(cellchat)
+    cellchat <- aggregateNet(cellchat)
+    cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
+    cellchat <- computeNetSimilarity(cellchat, type = "functional")
+    cellchat <- netEmbedding(cellchat, type = "functional")
+    #> Manifold learning of the signaling networks for a single dataset
+    cellchat <- netClustering(cellchat, type = "functional", do.parallel = FALSE)
+    return(cellchat)
+}
+```
+
+```{r loaddata}
+arc_lepr[['RNA']]@data = as.matrix(arc_lepr[['RNA']]@data)
+
+# Lepr
+arc_wt_lepr <- subset(arc_lepr, subset = condition == "wt")
+cellchat_arc_wt_lepr <- createCellChat(object = arc_wt_lepr, group.by = "clusters", assay = "RNA")
+cellchat_arc_wt_lepr <- run_cellchat(cellchat_arc_wt_lepr)
+saveRDS(cellchat_arc_wt_lepr, file = paste0(save_obj_path, "cellchat_wt_lepR_mouse.rds"))
+
+arc_ob_lepr <- subset(arc_lepr, subset = condition == "ob")
+cellchat_arc_ob_lepr <- createCellChat(object = arc_ob_lepr, group.by = "clusters", assay = "RNA")
+cellchat_arc_ob_lepr <- run_cellchat(cellchat_arc_ob_lepr)
+saveRDS(cellchat_arc_ob_lepr, file = paste0(save_obj_path, "cellchat_ob_lepR_mouse.rds"))
+
+arc_leptin_lepr <- subset(arc_lepr, subset = condition %in% c("leptinARC3h", "leptinARC72h", "leptinARC24h"))
+cellchat_arc_leptin_lepr <- createCellChat(object = arc_leptin_lepr, group.by = "clusters", assay = "RNA")
+cellchat_arc_leptin_lepr <- run_cellchat(cellchat_arc_leptin_lepr)
+saveRDS(cellchat_arc_leptin_lepr, file = paste0(save_obj_path, "cellchat_leptin_lepR_mouse.rds"))
+
+# non-Lepr
+arc_nonlepr[['RNA']]@data = as.matrix(arc_nonlepr[['RNA']]@data)
+
+arc_wt_nonlepr <- subset(arc_nonlepr, subset = condition == "wt")
+cellchat_arc_wt_nonlepr <- createCellChat(object = arc_wt_nonlepr, group.by = "clusters", assay = "RNA")
+cellchat_arc_wt_nonlepr <- run_cellchat(cellchat_arc_wt_nonlepr)
+saveRDS(cellchat_arc_wt_nonlepr, file = paste0(save_obj_path, "cellchat_wt_nonlepR_mouse.rds"))
+
+arc_ob_nonlepr <- subset(arc_nonlepr, subset = condition == "ob")
+cellchat_arc_ob_nonlepr <- createCellChat(object = arc_ob_nonlepr, group.by = "clusters", assay = "RNA")
+cellchat_arc_ob_nonlepr <- run_cellchat(cellchat_arc_ob_nonlepr)
+saveRDS(cellchat_arc_ob_nonlepr, file = paste0(save_obj_path, "cellchat_ob_nonlepR_mouse.rds"))
+
+arc_leptin_nonlepr <- subset(arc_nonlepr, subset = condition %in% c("leptinARC3h", "leptinARC72h", "leptinARC24h"))
+cellchat_arc_leptin_nonlepr <- createCellChat(object = arc_leptin_nonlepr, group.by = "clusters", assay = "RNA")
+cellchat_arc_leptin_nonlepr <- run_cellchat(cellchat_arc_leptin_nonlepr)
+saveRDS(cellchat_arc_leptin_nonlepr, file = paste0(save_obj_path, "cellchat_leptin_nonlepR_mouse.rds"))
+
+```
+
+
+# Figure 2h
+```{r ARC}
+# Lepr+ clusters
+wt = readRDS(paste0(save_obj_path, "cellchat_wt_lepR_mouse.rds"))
+ob = readRDS(paste0(save_obj_path, "cellchat_ob_lepR_mouse.rds"))
+leptin = readRDS(paste0(save_obj_path, "cellchat_leptin_lepR_mouse.rds"))
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+cellchat <- mergeCellChat(object.list, add.names = names(object.list), cell.prefix = TRUE)
+
+pdf(paste0(save_figure_path, "Fig2/Fig2h_lepR_ARC_compareInteractions.pdf"), width = 10, height = 5)
+gg1 <- compareInteractions(cellchat_lepr, show.legend = F, group = c(1,2,3))
+gg2 <- compareInteractions(cellchat_lepr, show.legend = F, group = c(1,2,3), measure = "weight")
+print(gg1 + gg2)
+dev.off()
+
+# non Lepr+ clusters
+wt = readRDS(paste0(save_obj_path, "cellchat_wt_nonlepR_mouse.rds"))
+ob = readRDS(paste0(save_obj_path, "cellchat_ob_nonlepR_mouse.rds"))
+leptin = readRDS(paste0(save_obj_path, "cellchat_leptin_nonlepR_mouse.rds"))
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+cellchat_nonlepr <- mergeCellChat(object.list, add.names = names(object.list), cell.prefix = TRUE)
+
+pdf(paste0(save_figure_path, "Fig2/Fig2h_nonLepR_ARC_compareInteractions.pdf"), width = 10, height = 5)
+gg1 <- compareInteractions(cellchat_nonlepr, show.legend = F, group = c(1,2,3))
+gg2 <- compareInteractions(cellchat_nonlepr, show.legend = F, group = c(1,2,3), measure = "weight")
+print(gg1 + gg2)
+dev.off()
+```
+
+
+# Figure 2i
+```{r PVH}
+
+wt = readRDS("cellchat_pvh_wt_mouse.rds")
+leptin = readRDS("cellchat_pvh_leptin_mouse.rds")
+ob = readRDS("cellchat_pvh_ob_mouse.rds")
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+
+#wt <- subset(wt, subset = condition %in% c("leptinPVH3h","leptinPVH24h", "leptinPVH72h"))
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+cellchat <- mergeCellChat(object.list, add.names = names(object.list), cell.prefix = TRUE)
+
+pdf(paste0(save_figure_path, "Fig2/Fig2i_PVH_compareInteractions.pdf"), width = 10, height = 5)
+gg1 <- compareInteractions(cellchat, show.legend = F, group = c(1,2,3))
+gg2 <- compareInteractions(cellchat, show.legend = F, group = c(1,2,3), measure = "weight")
+print(gg1 + gg2)
+dev.off()
+```
+
+# Figure 2 ib
+```{R ARC-PVH}
+wt = readRDS("cellchat_arc_pvh_wt_mouse.rds")
+leptin = readRDS("cellchat_arc_pvh_leptin_mouse.rds")
+ob = readRDS("cellchat_arc_pvh_ob_mouse.rds")
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+
+#wt <- subset(wt, subset = condition %in% c("leptinPVH3h","leptinPVH24h", "leptinPVH72h"))
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+cellchat <- mergeCellChat(object.list, add.names = names(object.list), cell.prefix = TRUE)
+
+pdf(paste0(save_figure_path, "Fig2/Fig2ib_ARC_PVH_compareInteractions.pdf"), width = 10, height = 5)
+gg1 <- compareInteractions(cellchat, show.legend = F, group = c(1,2,3))
+gg2 <- compareInteractions(cellchat, show.legend = F, group = c(1,2,3), measure = "weight")
+print(gg1 + gg2)
+dev.off()
+```
+
+
+# Figure 2J
+
+```{r ARC/PVH spcificity}
+# specificity analysis for ARC and PVH
+# this can be defined by how pathways are enriched in different conditions | this can be quantified by entropy
+
+wt = readRDS("cellchat_arc_pvh_wt_mouse.rds")
+leptin = readRDS("cellchat_arc_pvh_leptin_mouse.rds")
+ob = readRDS("cellchat_arc_pvh_ob_mouse.rds")
+
+# level 1 -- pathway specificity | Shannon entropy
+rownames(wt@net$prob)
+# grep rownames(wt@net$prob) with "ARC" and "PVH"
+arc_clusters = rownames(wt@net$prob)[grep("ARC", rownames(wt@net$prob))]
+pvh_clusters = rownames(wt@net$prob)[grep("PVH", rownames(wt@net$prob))]
+
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+
+pathway_specificity <- data.frame(pathway = pathways)
+
+for (cond in names(object.list)) {
+  cellchat <- object.list[[cond]]
+  lr_table <- cellchat@LR$LRsig[, c("ligand", "receptor", "pathway_name")]  
+  entropy_vec <- numeric(length(pathways))
+  for (i in 1:length(pathways)) {
+    lr_pairs <- rownames(lr_table[lr_table$pathway_name == pathways[i], ])
+    # handle single vs multiple L-R pairs
+    if (length(lr_pairs) == 1) {
+      prob_mat <- cellchat@net$prob[arc_clusters, pvh_clusters, lr_pairs, drop = FALSE]
+    } else {
+      prob_mat <- cellchat@net$prob[arc_clusters, pvh_clusters, lr_pairs]
+    }
+    if (sum(prob_mat) == 0) {
+      entropy_vec[i] <- 0
+      next
+    }
+    p <- prob_mat / sum(prob_mat)
+    p <- p[p > 0]
+    entropy_vec[i] <- -sum(p * log(p))
+  }
+  pathway_specificity[[cond]] <- entropy_vec
+}
+
+# visualization scatter plot with lines connecting the same pathway across conditions
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(ggrepel)
+
+# Tag each pathway by its trajectory pattern
+pathway_tags <- pathway_specificity |>
+  filter(pathway %in% active_pathways) |>
+  mutate(
+    tag = case_when(
+      leptin < ob & wt < ob ~ "Rescued in both",
+      leptin > ob & wt > ob ~ "Remains diffuse",
+      TRUE                  ~ "Mixed"
+    )
+  ) |>
+  select(pathway, tag)
+
+# Join tags onto long format
+plot_df <- pathway_specificity_long |>
+  left_join(pathway_tags, by = "pathway") |>
+  mutate(condition = factor(condition, levels = c("ob", "leptin", "wt"),
+                            labels = c("ob", "Leptin", "WT")))
+
+# Label pathways with strongest rescue (lowest wt entropy)
+rescue_labels <- pathway_tags |>
+  left_join(pathway_specificity, by = "pathway") |>
+  filter(tag == "Rescued in both") |>
+  slice_min(wt, n = 8) |>
+  pull(pathway)
+
+plot_df <- plot_df |>
+  mutate(label = ifelse(condition == "WT", as.character(pathway), NA))
+
+ggplot(plot_df, aes(x = condition, y = entropy, group = pathway)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  # grey background lines (mixed)
+  geom_line(
+    data   = filter(plot_df, tag == "Mixed"),
+    color  = "grey75", linewidth = 0.4, alpha = 0.6
+  ) +
+  # rescued pathways
+  geom_line(
+    data  = filter(plot_df, tag == "Rescued in both"),
+    color = "#2166ac", linewidth = 0.9, alpha = 0.8
+  ) +
+  # remains diffuse pathways
+  geom_line(
+    data  = filter(plot_df, tag == "Remains diffuse"),
+    color = "#d73027", linewidth = 0.9, alpha = 0.8
+  ) +
+  geom_point(
+    data  = filter(plot_df, tag == "Mixed"),
+    color = "grey60", size = 1.5, alpha = 0.5
+  ) +
+  geom_point(
+    data  = filter(plot_df, tag == "Rescued in both"),
+    color = "#2166ac", size = 2, alpha = 0.8
+  ) +
+  geom_point(
+    data  = filter(plot_df, tag == "Remains diffuse"),
+    color = "#d73027", size = 2, alpha = 0.8
+  ) +
+  geom_text_repel(
+    aes(label = label),
+    na.rm         = TRUE,
+    nudge_x       = 0.15,
+    size          = 2.8,
+    segment.size  = 0.3,
+    segment.color = "grey60",
+    color         = "black"
+  ) +
+  scale_x_discrete(expand = expansion(add = c(0.3, 0.6))) +
+  scale_color_manual(
+    values = c("Rescued in both" = "#2166ac",
+               "Remains diffuse" = "#d73027",
+               "Mixed"           = "grey75"),
+    name = NULL
+  ) +
+  labs(
+    x        = NULL,
+    y        = "Pathway entropy",
+    title    = "ARC → PVH pathway specificity across conditions",
+    subtitle = "Lower entropy = more specific  |  Blue = rescued in both  |  Red = remains diffuse"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    plot.subtitle      = element_text(size = 9, color = "grey40"),
+    plot.title         = element_text(face = "bold")
+  )
+```
+
+```{r}
+# ── 1. Sender selectivity ────────────────────────────────────────────────────
+# For each sender cell type in arc_clusters, how exclusively does it send
+# to receivers in pvh_clusters? (aggregated across all L-R pairs)
+
+compute_sender_selectivity <- function(cellchat, arc_clusters, pvh_clusters) {
+  # sum across all L-R pairs → 29x29 aggregated weight matrix
+  agg_mat <- apply(cellchat@net$prob, c(1, 2), sum)
+  
+  # restrict to ARC senders × PVH receivers
+  sub_mat <- agg_mat[arc_clusters, pvh_clusters]
+  
+  sender_entropy <- apply(sub_mat, 1, function(row) {
+    if (sum(row) == 0) return(NA)
+    p <- row / sum(row)
+    p <- p[p > 0]
+    -sum(p * log(p))   # low = sends to few targets = high selectivity
+  })
+  
+  data.frame(
+    cell_type = arc_clusters,
+    entropy   = sender_entropy,
+    role      = "Sender"
+  )
+}
+
+# ── 2. Receiver selectivity ──────────────────────────────────────────────────
+# For each receiver cell type in pvh_clusters, how exclusively does it receive
+# from senders in arc_clusters?
+
+compute_receiver_selectivity <- function(cellchat, arc_clusters, pvh_clusters) {
+  agg_mat <- apply(cellchat@net$prob, c(1, 2), sum)
+  sub_mat <- agg_mat[arc_clusters, pvh_clusters]
+  
+  receiver_entropy <- apply(sub_mat, 2, function(col) {
+    if (sum(col) == 0) return(NA)
+    p <- col / sum(col)
+    p <- p[p > 0]
+    -sum(p * log(p))   # low = receives from few sources = high selectivity
+  })
+  
+  data.frame(
+    cell_type = pvh_clusters,
+    entropy   = receiver_entropy,
+    role      = "Receiver"
+  )
+}
+
+# ── 3. Loop over conditions ──────────────────────────────────────────────────
+
+compute_selectivity_all <- function(object.list, arc_clusters, pvh_clusters) {
+  
+  results <- lapply(names(object.list), function(cond) {
+    cellchat <- object.list[[cond]]
+    
+    sender   <- compute_sender_selectivity(cellchat, arc_clusters, pvh_clusters)
+    receiver <- compute_receiver_selectivity(cellchat, arc_clusters, pvh_clusters)
+    
+    bind_rows(sender, receiver) |>
+      mutate(condition = cond)
+  })
+  
+  bind_rows(results) |>
+    mutate(condition = factor(condition,
+                              levels = c("ob", "leptin", "wt"),
+                              labels = c("ob", "Leptin", "WT")))
+}
+
+# ── 4. Tag trajectories (same logic as pathway plot) ────────────────────────
+
+tag_selectivity <- function(selectivity_long) {
+  selectivity_long |>
+    pivot_wider(names_from = condition, values_from = entropy) |>
+    mutate(
+      tag = case_when(
+        Leptin < ob & WT < ob ~ "Rescued in both",
+        Leptin > ob & WT > ob ~ "Remains diffuse",
+        TRUE                  ~ "Mixed"
+      )
+    ) |>
+    pivot_longer(cols = c(ob, Leptin, WT),
+                 names_to  = "condition",
+                 values_to = "entropy") |>
+    mutate(condition = factor(condition, levels = c("ob", "Leptin", "WT")))
+}
+
+# ── 5. Run it ────────────────────────────────────────────────────────────────
+
+selectivity_long <- compute_selectivity_all(object.list, arc_clusters, pvh_clusters)
+selectivity_tagged <- tag_selectivity(selectivity_long)
+
+# 6. visualization
+facet_wrap(~ role, ncol = 2, scales = "free_y")
+
+ggplot(selectivity_tagged, aes(x = condition, y = entropy, group = cell_type)) +
+  geom_line(data = filter(selectivity_tagged, tag == "Mixed"),
+            color = "grey75", linewidth = 0.4, alpha = 0.6) +
+  geom_line(data = filter(selectivity_tagged, tag == "Rescued in both"),
+            color = "#2166ac", linewidth = 0.9, alpha = 0.8) +
+  geom_line(data = filter(selectivity_tagged, tag == "Remains diffuse"),
+            color = "#d73027", linewidth = 0.9, alpha = 0.8) +
+  geom_point(data = filter(selectivity_tagged, tag == "Mixed"),
+             color = "grey60", size = 2, alpha = 0.5) +
+  geom_point(data = filter(selectivity_tagged, tag == "Rescued in both"),
+             color = "#2166ac", size = 2.5, alpha = 0.8) +
+  geom_point(data = filter(selectivity_tagged, tag == "Remains diffuse"),
+             color = "#d73027", size = 2.5, alpha = 0.8) +
+  geom_text_repel(
+    aes(label = ifelse(condition == "WT", as.character(cell_type), NA)),
+    na.rm          = TRUE,
+    nudge_x        = 0.4,
+    direction      = "y",
+    hjust          = 0,
+    size           = 2.5,
+    segment.size   = 0.3,
+    segment.color  = "grey60",
+    color          = "black",
+    max.overlaps   = Inf,
+    box.padding    = 0.5,      # more space between labels
+    point.padding  = 0.3,      # more space between label and its dot
+    force          = 5,        # stronger repulsion between labels
+    force_pull     = 0.5,      # weaker pull back toward original point
+    min.segment.length = 0     # always draw the connector segment
+  )+
+  scale_x_discrete(expand = expansion(add = c(0.3, 1.5))) +
+  facet_wrap(~ role, ncol = 2, scales = "free_y") +
+  labs(
+    x        = NULL,
+    y        = "Selectivity entropy",
+    title    = "ARC → PVH sender / receiver selectivity across conditions",
+    subtitle = "Lower entropy = more selective  |  Blue = rescued in both  |  Red = remains diffuse"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    plot.subtitle      = element_text(size = 9, color = "grey40"),
+    plot.title         = element_text(face = "bold"),
+    plot.margin        = margin(5, 120, 5, 5),
+    strip.text         = element_text(face = "bold", size = 11)
+  )
+```
+
+```{r}
+# ── Rescued pathways ─────────────────────────────────────────────────────────
+rescued_pathways <- pathway_specificity |>
+  filter(pathway %in% active_pathways) |>
+  mutate(
+    tag             = case_when(
+      leptin < ob & wt < ob ~ "Rescued in both",
+      leptin > ob & wt > ob ~ "Remains diffuse",
+      TRUE                  ~ "Mixed"
+    ),
+    ob_leptin_delta = ob - leptin,   # how much leptin recovered from ob
+    ob_wt_delta     = ob - wt,       # how much WT differs from ob
+    rescue_pct      = ob_leptin_delta / ob_wt_delta * 100  # % of WT rescue
+  ) |>
+  filter(tag == "Rescued in both") |>
+  arrange(desc(ob_leptin_delta))
+
+print(rescued_pathways)
+
+# ── Rescued L-R pairs within those pathways ──────────────────────────────────
+rescued_lr <- cellchat@LR$LRsig |>
+  filter(pathway_name %in% rescued_pathways$pathway) |>
+  select(ligand, receptor, pathway_name) |>
+  distinct()
+
+print(rescued_lr)
+
+# ── Sender cell types driving the rescue ─────────────────────────────────────
+rescued_senders <- selectivity_tagged |>
+  filter(role == "Sender", tag == "Rescued in both") |>
+  select(cell_type, condition, entropy) |>
+  pivot_wider(names_from = condition, values_from = entropy) |>
+  mutate(ob_leptin_delta = ob - Leptin) |>
+  arrange(desc(ob_leptin_delta))
+
+print(rescued_senders)
+
+```
+
+```{r Permutation test}
+# Permutation test: shuffle condition labels, recompute entropy difference
+set.row_permutation_test <- function(cellchat_list, pathway, arc_clusters, 
+                                     pvh_clusters, lr_table, n_perm = 1000) {
+  # get observed ob - leptin delta
+  observed <- sapply(names(cellchat_list), function(cond) {
+    lr_pairs <- rownames(lr_table[lr_table$pathway_name == pathway, ])
+    prob_mat  <- cellchat_list[[cond]]@net$prob[arc_clusters, pvh_clusters, lr_pairs]
+    if (sum(prob_mat) == 0) return(0)
+    p <- prob_mat / sum(prob_mat); p <- p[p > 0]
+    -sum(p * log(p))
+  })
+  
+  obs_delta <- observed["ob"] - observed["leptin"]
+  
+  # pool all probabilities and permute condition labels
+  null_deltas <- replicate(n_perm, {
+    shuffled <- sample(names(cellchat_list))
+    names(shuffled) <- names(cellchat_list)
+    observed["ob"] - observed[shuffled["leptin"]]
+  })
+  
+  p_val <- mean(abs(null_deltas) >= abs(obs_delta))
+  list(observed_delta = obs_delta, p_value = p_val)
+}
+
+set.row_permutation_test(object.list, "NRG", arc_clusters, pvh_clusters, lr_table)
+
+
+# ── Test whether the sender selectivity shift is significant ─────────────────
+# Use a paired Wilcoxon across all ARC senders: is ob entropy > leptin entropy?
+
+sender_wide <- selectivity_tagged |>
+  filter(role == "Sender") |>
+  pivot_wider(names_from = condition, values_from = entropy)
+
+# ob vs leptin
+wilcox.test(sender_wide$ob, sender_wide$Leptin, paired = TRUE, alternative = "greater")
+
+# ob vs WT (sanity check — how different is baseline?)
+wilcox.test(sender_wide$ob, sender_wide$WT, paired = TRUE, alternative = "greater")
+
+# leptin vs WT (did leptin overshoot or land at WT level?)
+wilcox.test(sender_wide$Leptin, sender_wide$WT, paired = TRUE)
+
+# effecto size: median difference in entropy between ob and leptin
+library(rstatix)
+
+
+sender_wide |>
+  select(cell_type, ob, Leptin, WT) |>
+  filter(is.na(ob) | is.na(Leptin) | is.na(WT))
+
+# check counts per condition
+selectivity_tagged |>
+  filter(role == "Sender") |>
+  group_by(condition) |>
+  summarise(n = n_distinct(cell_type))
+
+sender_wide_complete <- sender_wide |>
+  mutate(across(c(ob, Leptin, WT), ~ replace_na(.x, 0)))
+
+```
+
+# Fig 2I - ARC → PVH specificity quantified by strength ratio
+```{r 2I}
+
+compute_strength_ratio <- function(cellchat, arc_clusters, pvh_clusters, 
+                                   threshold_quantile = 0.75) {
+  agg_mat <- apply(cellchat@net$prob, c(1, 2), sum)
+  sub_mat <- agg_mat[arc_clusters, pvh_clusters]
+  
+  apply(sub_mat, 1, function(row) {
+    if (sum(row) == 0) return(NA)
+    thresh <- quantile(row, threshold_quantile)
+    strong <- row[row >= thresh]
+    weak   <- row[row <  thresh]
+    if (length(weak) == 0 || mean(weak) == 0) return(NA)
+    mean(strong) / mean(weak)   # high = specific, low = flat/diffuse
+  })
+}
+
+compute_wt_mask_score <- function(wt_mat, query_mat, 
+                                   arc_clusters, pvh_clusters,
+                                   threshold_quantile = 0.75) {
+  
+  # Step 1: define WT true targets per ARC cluster
+  wt_sub   <- wt_mat[arc_clusters, pvh_clusters]
+  wt_mask  <- apply(wt_sub, 1, function(row) {
+    thresh <- quantile(row, threshold_quantile)
+    row >= thresh   # TRUE = WT true target
+  }) |> t()   # arc x pvh binary mask
+  
+  # Step 2: for query condition, fraction of signal on WT true targets
+  q_sub <- query_mat[arc_clusters, pvh_clusters]
+  
+  sapply(seq_along(arc_clusters), function(i) {
+    total    <- sum(q_sub[i, ])
+    if (total == 0) return(NA)
+    on_target <- sum(q_sub[i, wt_mask[i, ]])
+    on_target / total   # 1 = all signal on WT targets, 0 = all off-target
+  })
+}
+
+gini <- function(x) {
+  x <- sort(x[x > 0])
+  n <- length(x)
+  if (n == 0) return(NA)
+  2 * sum(x * seq_along(x)) / (n * sum(x)) - (n + 1) / n
+}
+
+compute_gini_per_sender <- function(cellchat, arc_clusters, pvh_clusters) {
+  agg_mat <- apply(cellchat@net$prob, c(1, 2), sum)
+  sub_mat <- agg_mat[arc_clusters, pvh_clusters]
+  
+  data.frame(
+    cell_type = arc_clusters,
+    gini      = apply(sub_mat, 1, gini)
+  )
+}
+
+# Precompute aggregated matrices once per condition
+agg_mats <- lapply(object.list, function(cc) {
+  apply(cc@net$prob, c(1, 2), sum)
+})
+
+# WT mask scores for ob and leptin
+wt_mask_scores <- lapply(c("ob", "leptin"), function(cond) {
+  data.frame(
+    cell_type  = arc_clusters,
+    on_target  = compute_wt_mask_score(
+      agg_mats[["wt"]], agg_mats[[cond]],
+      arc_clusters, pvh_clusters
+    ),
+    condition  = cond
+  )
+}) |> bind_rows()
+
+# Gini per condition
+gini_scores <- lapply(names(object.list), function(cond) {
+  compute_gini_per_sender(object.list[[cond]], arc_clusters, pvh_clusters) |>
+    mutate(condition = cond)
+}) |> bind_rows() |>
+  mutate(condition = factor(condition, levels = c("ob", "leptin", "wt")))
+
+# Strength ratio per condition
+strength_ratios <- lapply(names(object.list), function(cond) {
+  data.frame(
+    cell_type = arc_clusters,
+    ratio     = compute_strength_ratio(
+      object.list[[cond]], arc_clusters, pvh_clusters
+    ),
+    condition = cond
+  )
+}) |> bind_rows() |>
+  mutate(condition = factor(condition, levels = c("ob", "leptin", "wt")))
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+
+wt_mask_wide <- wt_mask_scores |>
+  pivot_wider(names_from = condition, values_from = on_target) |>
+  mutate(
+    # ob mask score is baseline; 1.0 is WT ceiling
+    rescue_index = (leptin - ob) / (1 - ob)
+    # 0 = no rescue, 1 = full restoration of on-target signal
+  )
+
+# ── Combine and tag both metrics ─────────────────────────────────────────────
+gini_long <- gini_scores |>
+  rename(value = gini) |>
+  mutate(metric = "Gini coefficient\n(↑ more specific)")
+
+ratio_long <- strength_ratios |>
+  rename(value = ratio) |>
+  mutate(metric = "Strength ratio\n(↑ more specific)")
+
+combined <- bind_rows(gini_long, ratio_long) |>
+  mutate(condition = factor(condition, levels = c("ob", "leptin", "wt"),
+                            labels = c("ob", "Leptin", "WT")))
+
+# ── Tag trajectory per cell type per metric ──────────────────────────────────
+combined_tagged <- combined |>
+  pivot_wider(names_from = condition, values_from = value) |>
+  mutate(
+    dist_to_wt   = abs(Leptin - WT),
+    dist_to_ob   = abs(Leptin - ob),
+    rescue_index = (Leptin - ob) / (WT - ob),
+    tag = case_when(
+      dist_to_wt < dist_to_ob ~ "Rescued toward WT",
+      dist_to_wt > dist_to_ob ~ "Remains closer to ob",
+      TRUE                    ~ "Equidistant"
+    )
+  ) |>
+  pivot_longer(cols = c(ob, Leptin, WT),
+               names_to  = "condition",
+               values_to = "value") |>
+  mutate(condition = factor(condition, levels = c("ob", "Leptin", "WT")))
+
+library(ggrepel)
+
+
+# ── Plot ─────────────────────────────────────────────────────────────────────
+ggplot(combined_tagged,
+       aes(x = condition, y = value, group = cell_type)) +
+
+  # mixed / equidistant lines
+  geom_line(
+    data  = filter(combined_tagged, tag == "Equidistant"),
+    color = "grey75", linewidth = 0.4, alpha = 0.6
+  ) +
+  geom_line(
+    data  = filter(combined_tagged, tag == "Remains closer to ob"),
+    color = "#d73027", linewidth = 0.9, alpha = 0.8
+  ) +
+  geom_line(
+    data  = filter(combined_tagged, tag == "Rescued toward WT"),
+    color = "#2166ac", linewidth = 0.9, alpha = 0.8
+  ) +
+
+  # points
+  geom_point(
+    data  = filter(combined_tagged, tag == "Equidistant"),
+    color = "grey60", size = 1.5, alpha = 0.5
+  ) +
+  geom_point(
+    data  = filter(combined_tagged, tag == "Remains closer to ob"),
+    color = "#d73027", size = 2, alpha = 0.8
+  ) +
+  geom_point(
+    data  = filter(combined_tagged, tag == "Rescued toward WT"),
+    color = "#2166ac", size = 2, alpha = 0.8
+  ) +
+
+  # cell type labels at WT
+  geom_text_repel(
+    aes(label = ifelse(condition == "WT", as.character(cell_type), NA)),
+    na.rm          = TRUE,
+    nudge_x        = 0.3,
+    direction      = "y",
+    hjust          = 0,
+    size           = 2.5,
+    segment.size   = 0.3,
+    segment.color  = "grey60",
+    color          = "black",
+    max.overlaps   = Inf,
+    box.padding    = 0.4,
+    point.padding  = 0.2,
+    force          = 4
+  ) +
+
+  scale_x_discrete(expand = expansion(add = c(0.3, 1.8))) +
+  facet_wrap(~ metric, ncol = 2, scales = "free_y") +
+  labs(
+    x        = NULL,
+    y        = NULL,
+    title    = "ARC -> PVH sender specificity across conditions",
+    subtitle = "Blue = rescued toward WT  |  Red = remains closer to ob  |  Tagging based on Leptin distance to ob vs WT"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    strip.text         = element_text(face = "bold", size = 11),
+    plot.subtitle      = element_text(size = 9, color = "grey40"),
+    plot.title         = element_text(face = "bold"),
+    plot.margin        = margin(5, 140, 5, 5)
+  )
+
+# Save figure
+p <- ggplot(combined_tagged,
+       aes(x = condition, y = value, group = cell_type)) +
+
+  geom_line(
+    data  = filter(combined_tagged, tag == "Equidistant"),
+    color = "grey75", linewidth = 0.4, alpha = 0.6
+  ) +
+  geom_line(
+    data  = filter(combined_tagged, tag == "Remains closer to ob"),
+    color = "#d73027", linewidth = 0.9, alpha = 0.8
+  ) +
+  geom_line(
+    data  = filter(combined_tagged, tag == "Rescued toward WT"),
+    color = "#2166ac", linewidth = 0.9, alpha = 0.8
+  ) +
+
+  geom_point(
+    data  = filter(combined_tagged, tag == "Equidistant"),
+    color = "grey60", size = 1.5, alpha = 0.5
+  ) +
+  geom_point(
+    data  = filter(combined_tagged, tag == "Remains closer to ob"),
+    color = "#d73027", size = 2, alpha = 0.8
+  ) +
+  geom_point(
+    data  = filter(combined_tagged, tag == "Rescued toward WT"),
+    color = "#2166ac", size = 2, alpha = 0.8
+  ) +
+
+  geom_text_repel(
+    aes(label = ifelse(condition == "WT", as.character(cell_type), NA)),
+    na.rm          = TRUE,
+    nudge_x        = 0.3,
+    direction      = "y",
+    hjust          = 0,
+    size           = 2.5,
+    segment.size   = 0.3,
+    segment.color  = "grey60",
+    color          = "black",
+    max.overlaps   = Inf,
+    box.padding    = 0.4,
+    point.padding  = 0.2,
+    force          = 4
+  ) +
+
+  scale_x_discrete(expand = expansion(add = c(0.3, 1.8))) +
+  facet_wrap(~ metric, ncol = 2, scales = "free_y") +
+  labs(
+    x        = NULL,
+    y        = NULL,
+    title    = "ARC -> PVH sender specificity across conditions",
+    subtitle = "Blue = rescued toward WT  |  Red = remains closer to ob  |  Tagging based on Leptin distance to ob vs WT"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    strip.text         = element_text(face = "bold", size = 11),
+    plot.subtitle      = element_text(size = 9, color = "grey40"),
+    plot.title         = element_text(face = "bold"),
+    plot.margin        = margin(5, 140, 5, 5)
+  )
+
+ggsave(
+  filename = "Fig2I_ARC_PVH_sender_specificity.pdf",
+  plot = p,
+  width = 12,
+  height = 8,
+  device = cairo_pdf
+)
+
+```
+
+# Figure 2K
+```{r ARC NPY signaling}
+pathways.show <- c("NPY") 
+
+# Lepr+ clusters
+wt = readRDS(paste0(save_obj_path, "cellchat_wt_lepR_mouse.rds"))
+ob = readRDS(paste0(save_obj_path, "cellchat_ob_lepR_mouse.rds"))
+leptin = readRDS(paste0(save_obj_path, "cellchat_leptin_lepR_mouse.rds"))
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+
+pdf(paste0(save_figure_path, "Fig2/Fig2k_lepR_ARC_NPY_signaling.pdf"), width = 15, height = 5)
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), attribute = pathways.show) # control the edge weights across different datasets
+par(mfrow = c(1,3), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+dev.off()
+
+# non Lepr+ clusters
+pathways.show <- c("NPY") # not showing up in nonNPR
+
+wt = readRDS(paste0(save_obj_path, "cellchat_wt_nonlepR_mouse.rds"))
+ob = readRDS(paste0(save_obj_path, "cellchat_ob_nonlepR_mouse.rds"))
+leptin = readRDS(paste0(save_obj_path, "cellchat_leptin_nonlepR_mouse.rds"))
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+object.list <- list(#wt = wt, 
+ob = ob, leptin = leptin)
+
+pdf(paste0(save_figure_path, "Fig2/Fig2k_nonlepR_ARC_NPY_signaling.pdf"), width = 15, height = 5)
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+dev.off()
+
+# does not divide on the lepr and non-lepr cluster
+
+pathways.show <- c("NPY") # not showing up in nonNPR
+
+wt = readRDS("cellchat_wt_mouse.rds")
+ob = readRDS("cellchat_ob_mouse.rds")
+leptin = readRDS("cellchat_leptin_mouse.rds")
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), attribute = pathways.show) 
+
+pdf(paste0(save_figure_path, "Fig2/Fig2k_all_clusters_ARC_NPY_signaling.pdf"), width = 15, height = 5)
+par(mfrow = c(1,3), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+dev.off()
+
+```
+
+
+# Figure 2L
+```{r PVH FGF signaling}
+
+wt = readRDS("cellchat_pvh_wt_mouse.rds")
+leptin = readRDS("cellchat_pvh_leptin_mouse.rds")
+ob = readRDS("cellchat_pvh_ob_mouse.rds")
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+cellchat <- mergeCellChat(object.list, add.names = names(object.list), cell.prefix = TRUE)
+
+pathways.show <- c("FGF") 
+pdf(paste0(save_figure_path, "Fig2/Fig2l_PVH_FGF_signaling.pdf"), width = 15, height = 5)
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), attribute = pathways.show) # control the edge weights across different datasets
+par(mfrow = c(1,3), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+dev.off()
+
+```
+
+
+# Figure 2M
+```{r PVH PTN signaling}
+
+wt = readRDS("cellchat_pvh_wt_mouse.rds")
+leptin = readRDS("cellchat_pvh_leptin_mouse.rds")
+ob = readRDS("cellchat_pvh_ob_mouse.rds")
+
+wt <- updateCellChat(wt)
+leptin <- updateCellChat(leptin)
+ob <- updateCellChat(ob)
+
+object.list <- list(wt = wt, ob = ob, leptin = leptin)
+cellchat <- mergeCellChat(object.list, add.names = names(object.list), cell.prefix = TRUE)
+
+pathways.show <- c("PTN") 
+pdf(paste0(save_figure_path, "Fig2/Fig2m_PVH_PTN_signaling.pdf"), width = 15, height = 5)
+weight.max <- getMaxWeight(object.list, slot.name = c("netP"), attribute = pathways.show) # control the edge weights across different datasets
+par(mfrow = c(1,3), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_aggregate(object.list[[i]], signaling = pathways.show, layout = "circle", edge.weight.max = weight.max[1], edge.width.max = 10, signaling.name = paste(pathways.show, names(object.list)[i]))
+}
+dev.off()
+
+```
+
+# Extended Data Fig. 5a
+```{r}
+
+
+```
