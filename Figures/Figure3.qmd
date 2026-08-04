@@ -1541,7 +1541,11 @@ write.csv(
 row_meta_all <- row_meta_g
 ```
 
-# Fig 3H — Gene ontology enrichment of STAT3 target gene clusters
+# Fig 3H - Expression of representative STAT3 target genes across ARC neuronal clusters
+
+*Pending — Output figures to be added here.*
+
+# Fig 3I — Gene ontology enrichment of STAT3 target gene clusters
 
 ::: {.callout-tip appearance="minimal"}
 GO biological process (BP) over-representation analysis was run on each gene cluster identified in Fig 3G using `clusterProfiler::compareCluster`. Three background gene sets are compared across tabs:

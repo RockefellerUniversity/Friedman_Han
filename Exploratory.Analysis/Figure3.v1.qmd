@@ -1,0 +1,1848 @@
+---
+title: "Figure 3 — Integrated chromatin and transcriptional landscapes of leptin-responsive ARC and PVH neurons"
+subtitle: "Single-nucleus multiome analysis | Friedman Lab"
+author:
+  - name: Matt Paul
+    affiliation: Bioinformatics Resource Center, Rockefeller University
+date: today
+format:
+  html:
+    embed-resources: true
+    theme: flatly
+    highlight-style: github
+    toc: true
+    toc-depth: 3
+    toc-float: true
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    code-summary: "Show code"
+    smooth-scroll: true
+    fig-align: center
+    css: styles.css
+execute:
+  warning: false
+  message: false
+  echo: false
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+
+knitr::opts_chunk$set(fig.height=10, fig.width=15, fig.path='figures/figure3/', dev=c('png', 'pdf'))
+
+rand_seed <- 42
+set.seed(rand_seed)
+knitr::opts_chunk$set(cache.extra = rand_seed)
+```
+
+# Overview
+
+::: {.callout-note appearance="minimal"}
+| | |
+|---|---|
+| **Project** | Leptin treatment and its effect on hypothalamic brain regions |
+| **Lab** | Friedman Lab — Rockefeller University |
+| **Analyst** | Han Tan |
+| **Analysis** | Integrated snATAC-seq and snRNA-seq (single-nucleus multiome) from the arcuate nucleus (ARC) and paraventricular nucleus (PVH) |
+
+**Cluster identity reference**
+
+| Cluster | Identity | Region |
+|---------|----------|--------|
+| ARC 0 | AgRP / LepR neurons | ARC |
+| ARC 3 | POMC / LepR neurons | ARC |
+| ARC 17 | BNC2 / LepR neurons | ARC |
+:::
+
+---
+
+```{r}
+
+library(Seurat, quietly = T)
+library(Signac, quietly = T)
+library(ggplot2, quietly = T)
+library(pheatmap, quietly = T)
+library(patchwork, quietly = T)
+library(RColorBrewer, quietly = T)
+library(tidyverse, quietly = T)
+library(magrittr, quietly = T)
+library(motifmatchr, quietly = T)
+library(JASPAR2022, quietly = T)
+library(TFBSTools, quietly = T)
+library(BSgenome.Mmusculus.UCSC.mm10, quietly = T)
+library(magrittr, quietly = T)
+library(dplyr, quietly = T)
+library(slider, quietly = T)
+
+dir.create("tables", showWarnings = FALSE)
+
+```
+
+```{r color_palettes}
+# ── Condition color palettes ─────────────────────────────────────────────────
+# ARC: covers both capitalized (used in Fig3C) and lowercase (used in Fig3I)
+arc_cond_colors <- c(
+  ob="#e04516", OB="#e04516",
+  lep3h="#8dc9d0",
+  lep27h="#23c6ea",
+  lep75h="#2127d9",
+  wt="#22d062", WT="#22d062"
+)
+
+# PVH
+pvh_cond_colors <- c(
+  ob="#e04516", OB="#e04516",
+  lep3h="#cdd781",  Lep3h="#cdd781",
+  lep27h="#B4B415", Lep27h="#B4B415",
+  lep75h="#f1ca07", Lep75h="#f1ca07",
+  wt="#22d062", WT="#22d062"
+)
+
+# Raw ATAC group values for footprint plots — covers raw (Leptin24hr/72hr),
+# alias (Leptin27hr/75hr), and cleaned (Lep27h/Lep75h) label variants
+arc_cond_colors_raw <- c(
+  ob="#e04516",     OB="#e04516",
+  Leptin3hr="#8dc9d0",  Lep3h="#8dc9d0",
+  Leptin24hr="#23c6ea", Leptin27hr="#23c6ea", Lep27h="#23c6ea",
+  Leptin72hr="#2127d9", Leptin75hr="#2127d9", Lep75h="#2127d9",
+  wt="#22d062",     WT="#22d062"
+)
+
+# Shared helper: recode raw condition labels to display labels
+# Covers ARC (leptinARC*) and PVH (leptinPVH*) prefix variants plus
+# Leptin*hr variants from the ATAC group column
+recode_cond <- function(x) {
+  x <- gsub("leptinARC3h|leptinPVH3h|Leptin3hr",    "Lep3h",  x)
+  x <- gsub("leptinARC24h|leptinPVH24h|Leptin24hr",  "Lep27h", x)
+  x <- gsub("leptinARC72h|leptinPVH72h|Leptin72hr",  "Lep75h", x)
+  x <- gsub("^ob$", "OB", x)
+  x <- gsub("^wt$", "WT", x)
+  x
+}
+```
+
+# Cell / nuclei summary
+
+::: {.callout-note appearance="minimal"}
+Counts of cells/nuclei passing QC at two stages: the **unfiltered** objects (all cells from the original RNA and ATAC processing pipelines) and the **neuronal subset** used for all downstream figures (filtered to neuronal clusters in the merged multiome objects).
+:::
+
+```{r, cell.summary.table}
+
+# ── Filtered counts from the analysis objects ─────────────────────────────────
+ARC_tmp <- readRDS("../Data.Objects/final_ARC_merged_clusters_20250206.rds")
+PVH_tmp <- readRDS("../Data.Objects/PVH_clust_assign_subset_reUMAP_012225.rds")
+
+arc_rna_filt  <- sum(ARC_tmp$tech == "RNA")
+arc_atac_filt <- sum(ARC_tmp$tech == "ATAC")
+pvh_rna_filt  <- sum(PVH_tmp$tech == "RNA")
+pvh_atac_filt <- sum(PVH_tmp$tech == "ATAC")
+
+rm(ARC_tmp, PVH_tmp)
+
+# ── Unfiltered counts from the raw processed objects ─────────────────────────
+arc_rna_raw  <- readRDS("../Data.Objects/arc.combined_111621.RDS")
+arc_atac_raw <- readRDS("../Data.Objects/seuATAC_allSample_ARC.rds")
+pvh_rna_raw  <- readRDS("../Data.Objects/pvh.combined_111621.RDS")
+pvh_atac_raw <- readRDS("../Data.Objects/seuATAC_allSample_PVH.rds")
+
+arc_rna_unfilt  <- ncol(arc_rna_raw)
+arc_atac_unfilt <- ncol(arc_atac_raw)
+pvh_rna_unfilt  <- ncol(pvh_rna_raw)
+pvh_atac_unfilt <- ncol(pvh_atac_raw)
+
+rm(arc_rna_raw, arc_atac_raw, pvh_rna_raw, pvh_atac_raw)
+
+# ── Summary table ─────────────────────────────────────────────────────────────
+summary_tbl <- data.frame(
+  Region   = c("ARC", "ARC", "PVH", "PVH"),
+  Modality = c("RNA", "ATAC", "RNA", "ATAC"),
+  Unfiltered   = c(arc_rna_unfilt,  arc_atac_unfilt,  pvh_rna_unfilt,  pvh_atac_unfilt),
+  Neuronal_subset = c(arc_rna_filt, arc_atac_filt,    pvh_rna_filt,    pvh_atac_filt)
+)
+colnames(summary_tbl)[4] <- "Neuronal subset"
+
+knitr::kable(summary_tbl,
+             caption = "Cells / nuclei per region and modality",
+             format.args = list(big.mark = ","),
+             align = c("l", "l", "r", "r"))
+
+```
+
+---
+
+# Fig 3A — ARC: integrated chromatin and transcriptional landscapes
+
+::: {.callout-tip appearance="minimal"}
+Paired snRNA-seq and snATAC-seq profiles from the arcuate nucleus (ARC) were co-embedded and clustered. Cluster identity was confirmed by matching ATAC-derived gene activity scores to established marker gene expression patterns from the RNA modality.
+:::
+
+## Co-embedding and cluster overview
+
+```{r}
+ARC <- readRDS("../Data.Objects/final_ARC_merged_clusters_20250206.rds")
+
+```
+
+```{R, fig3A.ARC.UMAP.prep}
+
+ARC$cluster <- factor(ARC$cluster, levels=as.character(sort(as.numeric(unique(levels(ARC$cluster))))))
+
+# Unified cleaned condition label for RNA (condition) and ATAC (group) cells
+ARC$condition_display <- ifelse(
+  ARC$tech == "RNA",
+  recode_cond(ARC$condition),
+  recode_cond(ARC$group)
+)
+
+Idents(ARC) <- "cluster"
+```
+
+```{r, fig3A.ARC.UMAP.palette}
+# Build dual-shade palettes: ATAC = full colour, RNA = lightened version
+lighten <- function(hex, amount = 0.5) {
+  rgb <- col2rgb(hex) / 255
+  rgb_light <- rgb + (1 - rgb) * amount
+  rgb(rgb_light[1], rgb_light[2], rgb_light[3])
+}
+
+# Cluster palette — one colour per cluster level
+arc_cluster_levels <- levels(ARC$cluster)
+base_cluster_cols  <- setNames(
+  scales::hue_pal()(length(arc_cluster_levels)),
+  arc_cluster_levels
+)
+
+# tech__cluster combined key for dual-shade plot
+arc_cluster_dual <- c(
+  setNames(base_cluster_cols,                          paste0("ATAC__", arc_cluster_levels)),
+  setNames(sapply(base_cluster_cols, lighten), paste0("RNA__",  arc_cluster_levels))
+)
+
+# Condition dual-shade palette
+arc_cond_levels <- unique(ARC$condition_display)
+base_cond_cols  <- arc_cond_colors_raw[arc_cond_levels]
+base_cond_cols  <- base_cond_cols[!is.na(base_cond_cols)]
+
+arc_cond_dual <- c(
+  setNames(base_cond_cols,                          paste0("ATAC__", names(base_cond_cols))),
+  setNames(sapply(base_cond_cols, lighten), paste0("RNA__",  names(base_cond_cols)))
+)
+
+# Combined key columns used in dual-shade plots
+ARC$tech_cluster   <- paste0(ARC$tech, "__", ARC$cluster)
+ARC$tech_condition <- paste0(ARC$tech, "__", ARC$condition_display)
+```
+
+::: {.panel-tabset}
+
+### 1 — By tech
+
+```{R, fig3A.ARC.UMAP.tech, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "tech")
+```
+
+### 2 — By cluster
+
+```{R, fig3A.ARC.UMAP.cluster, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{R, fig3A.ARC.UMAP.condition, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "condition_display") +
+  scale_color_manual(values = arc_cond_colors_raw)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{R, fig3A.ARC.UMAP.cluster.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "tech_cluster") +
+  scale_color_manual(values = arc_cluster_dual) +
+  guides(color = guide_legend(
+    title = "Cluster",
+    override.aes = list(size = 3),
+    # show only ATAC entries in legend (drop RNA__ duplicates)
+    label.theme = element_text(size = 8)
+  )) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{R, fig3A.ARC.UMAP.condition.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "tech_condition") +
+  scale_color_manual(values = arc_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
+```
+
+### By hash ID
+
+```{R, fig3A.ARC.UMAP.hash, fig.height=8, fig.width=10, eval=T}
+DimPlot(ARC, group.by = "hash.ID")
+```
+
+:::
+
+### Harmony re-integration with condition as covariate (exploratory)
+
+::: {.callout-note appearance="minimal"}
+The original co-embedding used no batch correction (PCA on RNA HVGs → UMAP). This section re-runs Harmony on the existing PCA embedding correcting for condition, to assess whether the condition-axis separation reflects biology or a technical effect. This object is **not** used for any downstream analyses.
+:::
+
+```{r, fig3A.ARC.harmony.run, message=FALSE, warning=FALSE}
+library(harmony, quietly = TRUE)
+
+# condition_display already built above — copy to working object
+ARC_h <- ARC
+
+ARC_h <- RunHarmony(
+  ARC_h,
+  group.by.vars  = "condition_display",
+  reduction      = "pca",
+  reduction.save = "harmony_cond",
+  verbose        = FALSE
+)
+
+ARC_h <- RunUMAP(ARC_h, reduction = "harmony_cond", dims = 1:30,
+                 reduction.name = "umap_harmony_cond", verbose = FALSE)
+```
+
+```{r, fig3A.ARC.harmony.keys}
+# tech__ keys carry over from ARC copy; rebuild for ARC_h to be safe
+ARC_h$tech_cluster   <- paste0(ARC_h$tech, "__", ARC_h$cluster)
+ARC_h$tech_condition <- paste0(ARC_h$tech, "__", ARC_h$condition_display)
+```
+
+::: {.panel-tabset}
+
+### 1 — By tech
+
+```{r, fig3A.ARC.harmony.tech, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "tech")
+```
+
+### 2 — By cluster
+
+```{r, fig3A.ARC.harmony.cluster, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{r, fig3A.ARC.harmony.condition, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "condition_display") +
+  scale_color_manual(values = arc_cond_colors_raw)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{r, fig3A.ARC.harmony.cluster.dual, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "tech_cluster") +
+  scale_color_manual(values = arc_cluster_dual) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{r, fig3A.ARC.harmony.condition.dual, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "tech_condition") +
+  scale_color_manual(values = arc_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
+```
+
+### By hash ID
+
+```{r, fig3A.ARC.harmony.hash, fig.height=8, fig.width=10}
+DimPlot(ARC_h, reduction = "umap_harmony_cond", group.by = "hash.ID")
+```
+
+:::
+
+```{r}
+rm(ARC_h)
+```
+
+```{r, fig3A.ARC.cell.counts}
+arc_meta <- ARC@meta.data
+
+rna_tab <- table(Cluster   = arc_meta$cluster[arc_meta$tech == "RNA"],
+                 Condition = arc_meta$condition[arc_meta$tech == "RNA"])
+knitr::kable(rna_tab, caption = "ARC RNA — cells per cluster × condition")
+
+atac_tab <- table(Cluster   = arc_meta$cluster[arc_meta$tech == "ATAC"],
+                  Condition = arc_meta$group[arc_meta$tech == "ATAC"])
+knitr::kable(atac_tab, caption = "ARC ATAC — cells per cluster × condition")
+```
+
+## Marker gene expression across modalities
+
+::: {.callout-tip appearance="minimal"}
+Dotplots and heatmaps show expression of canonical ARC neuronal marker genes across all clusters, for both the RNA (normalised counts) and ATAC (gene activity scores inferred from chromatin accessibility) modalities.
+:::
+
+```{r}
+
+#mark_ge <- c("Npy","Ccbe1","Dach2","Tmem26","Pomc","Sntb1","Vgll3","Tcf7l2","Sv2b","Hydin","Mcc","Col24a1","Pdgfd","Colec12","Lmo7","Megf11","Nfib","Qrfpr","Alk","Pdzrn3","Gem","Sim1","Bnc2","Sema3e","Unc13c","Lef1","Lhx9","Rgs6")
+
+mark_ge <- c("Npy","Alk","Dach2","Unc13c","Tmem26","Pomc","Sntb1","Vgll3","Rgs6","Tcf7l2","Sv2b","Col24a1","Pdgfd","Colec12","Gm20754","Lmo7","Nfib","Mcc","Qrfpr","Pdzrn3","Gem","Sim1","Bnc2","Sema3e","Lef1","Lhx9")
+
+# ── Helper: compute per-cluster mean expression and percent expressed ─────────
+calc_dotplot_dat <- function(seu, genes, assay = "RNA", slot = "data") {
+  count <- as.matrix(GetAssayData(seu, assay = assay, slot = slot))
+  meta  <- seu@meta.data
+  clusts <- unique(meta$cluster)
+
+  dat_list <- lapply(genes, function(ge) {
+    exp <- count[ge, ]
+    cluster_list <- lapply(clusts, function(cl) {
+      cells <- rownames(meta)[meta$cluster == cl]
+      ex    <- exp[cells]
+      setNames(c(mean(ex), mean(ex > 0) * 100), c("exp", "prop"))
+    })
+    names(cluster_list) <- clusts
+    mat <- do.call(rbind, cluster_list)
+    cbind(data.frame(gene = ge, cluster = rownames(mat), stringsAsFactors = FALSE), mat)
+  })
+
+  dat <- do.call(rbind, dat_list)
+  dat$cluster <- factor(dat$cluster,
+                        levels = as.character(sort(as.numeric(unique(dat$cluster)))))
+  dat$gene <- factor(dat$gene, levels = genes)
+  dat
+}
+
+# ── Helper: compute per-cluster mean expression matrix for heatmap ────────────
+calc_heatmap_mat <- function(seu, genes, assay = "RNA", slot = "data") {
+  count <- as.matrix(GetAssayData(seu, assay = assay, slot = slot))
+  meta  <- seu@meta.data
+  mat <- sapply(levels(meta$cluster), function(cl) {
+    cells <- rownames(meta)[meta$cluster == cl]
+    rowMeans(count[genes, cells, drop = FALSE])
+  })
+  mat[!matrixStats::rowSds(mat) == 0, ]
+}
+
+colors_hm   <- colorRampPalette(c("blue", "white", "red"))(800)
+breaksList  <- seq(-4, 4, by = 0.01)
+
+```
+
+::: {.panel-tabset}
+
+### RNA — dotplot
+
+```{R, fig3A.ARC.RNA.dotplot, fig.height=10, fig.width=15, eval=T}
+
+seu_rna_arc  <- subset(ARC, tech == "RNA")
+seu_rna_arc$cluster <- droplevels(seu_rna_arc$cluster)
+
+calPlot_dat <- calc_dotplot_dat(seu_rna_arc, mark_ge)
+
+ggplot(calPlot_dat, aes(x = gene, y = cluster, size = prop, color = exp)) +
+  geom_point() +
+  labs(x = "", y = "Cluster", color = "Mean expression", size = "% expressed",
+       title = "ARC marker gene expression — RNA") +
+  scale_color_gradient(low = "white", high = "darkblue") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+```
+
+### RNA — heatmap
+
+```{R, fig3A.ARC.RNA.heatmap, fig.height=10, fig.width=15, eval=T}
+
+calPlot_mat <- calc_heatmap_mat(seu_rna_arc, mark_ge)
+
+pheatmap(calPlot_mat, scale = "row", cluster_rows = FALSE, cluster_cols = FALSE,
+         breaks = breaksList, color = colors_hm,
+         main = "ARC marker gene expression — RNA")
+
+```
+
+### ATAC gene activity — dotplot
+
+```{R, fig3A.ARC.ATAC.dotplot, fig.height=10, fig.width=15, eval=T}
+
+seu_atac_arc <- subset(ARC, tech == "ATAC")
+seu_atac_arc$cluster <- droplevels(seu_atac_arc$cluster)
+
+calPlot_dat_atac <- calc_dotplot_dat(seu_atac_arc, mark_ge)
+
+ggplot(calPlot_dat_atac, aes(x = gene, y = cluster, size = prop, color = exp)) +
+  geom_point() +
+  labs(x = "", y = "Cluster", color = "Mean activity", size = "% active",
+       title = "ARC marker gene activity — ATAC") +
+  scale_color_gradient(low = "white", high = "darkblue") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+```
+
+### ATAC gene activity — heatmap
+
+```{R, fig3A.ARC.ATAC.heatmap, fig.height=10, fig.width=15, eval=T}
+
+calPlot_mat_atac <- calc_heatmap_mat(seu_atac_arc, mark_ge)
+
+pheatmap(calPlot_mat_atac, scale = "row", cluster_rows = FALSE, cluster_cols = FALSE,
+         breaks = breaksList, color = colors_hm,
+         main = "ARC marker gene activity — ATAC")
+
+```
+
+:::
+
+
+# Fig 3B — PVH: integrated chromatin and transcriptional landscapes
+
+::: {.callout-tip appearance="minimal"}
+The same paired multiome integration was applied to the paraventricular nucleus (PVH), a key downstream target of ARC LepR neurons. Cluster identities were annotated using ATAC gene activity and RNA marker concordance.
+:::
+
+## Co-embedding and cluster overview
+
+```{R}
+PVH <- readRDS("../Data.Objects/PVH_clust_assign_subset_reUMAP_012225.rds")
+
+```
+
+```{R, fig3B.PVH.UMAP.prep}
+PVH$cluster <- factor(PVH$cluster, levels=as.character(sort(as.numeric(unique(levels(PVH$cluster))))))
+
+# Diagnostic: print raw label values so naming variants can be confirmed
+cat("PVH RNA condition raw values: ", paste(sort(unique(PVH$condition[PVH$tech == "RNA"])), collapse = ", "), "\n")
+cat("PVH ATAC group raw values:    ", paste(sort(unique(PVH$group[PVH$tech    == "ATAC"])), collapse = ", "), "\n")
+
+PVH$condition_display <- ifelse(
+  PVH$tech == "RNA",
+  recode_cond(PVH$condition),
+  recode_cond(PVH$group)
+)
+
+cat("PVH condition_display values: ", paste(sort(unique(PVH$condition_display)), collapse = ", "), "\n")
+```
+
+```{r, fig3B.PVH.UMAP.palette}
+pvh_cluster_levels <- levels(PVH$cluster)
+base_pvh_cluster_cols <- setNames(
+  scales::hue_pal()(length(pvh_cluster_levels)),
+  pvh_cluster_levels
+)
+
+pvh_cluster_dual <- c(
+  setNames(base_pvh_cluster_cols,                          paste0("ATAC__", pvh_cluster_levels)),
+  setNames(sapply(base_pvh_cluster_cols, lighten), paste0("RNA__",  pvh_cluster_levels))
+)
+
+pvh_cond_levels <- unique(PVH$condition_display)
+base_pvh_cond_cols <- pvh_cond_colors[pvh_cond_levels]
+base_pvh_cond_cols <- base_pvh_cond_cols[!is.na(base_pvh_cond_cols)]
+
+pvh_cond_dual <- c(
+  setNames(base_pvh_cond_cols,                          paste0("ATAC__", names(base_pvh_cond_cols))),
+  setNames(sapply(base_pvh_cond_cols, lighten), paste0("RNA__",  names(base_pvh_cond_cols)))
+)
+
+PVH$tech_cluster   <- paste0(PVH$tech, "__", PVH$cluster)
+PVH$tech_condition <- paste0(PVH$tech, "__", PVH$condition_display)
+```
+
+::: {.panel-tabset}
+
+### 1 — By tech
+
+```{R, fig3B.PVH.UMAP.tech, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "tech")
+```
+
+### 2 — By cluster
+
+```{R, fig3B.PVH.UMAP.cluster, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{R, fig3B.PVH.UMAP.condition, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "condition_display") +
+  scale_color_manual(values = pvh_cond_colors)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{R, fig3B.PVH.UMAP.cluster.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "tech_cluster") +
+  scale_color_manual(values = pvh_cluster_dual) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{R, fig3B.PVH.UMAP.condition.dual, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "tech_condition") +
+  scale_color_manual(values = pvh_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
+```
+
+### By hash ID
+
+```{R, fig3B.PVH.UMAP.hash, fig.height=8, fig.width=10, eval=T}
+DimPlot(PVH, group.by = "hash.ID")
+```
+
+:::
+
+### Harmony re-integration with condition as covariate (exploratory)
+
+::: {.callout-note appearance="minimal"}
+The original co-embedding used no batch correction (PCA on RNA HVGs → UMAP). This section re-runs Harmony on the existing PCA embedding correcting for condition, to assess whether the condition-axis separation reflects biology or a technical effect. This object is **not** used for any downstream analyses.
+:::
+
+```{r, fig3B.PVH.harmony.run, message=FALSE, warning=FALSE}
+PVH_h <- PVH
+
+PVH_h <- RunHarmony(
+  PVH_h,
+  group.by.vars  = "condition_display",
+  reduction      = "pca",
+  reduction.save = "harmony_cond",
+  verbose        = FALSE
+)
+
+PVH_h <- RunUMAP(PVH_h, reduction = "harmony_cond", dims = 1:30,
+                 reduction.name = "umap_harmony_cond", verbose = FALSE)
+```
+
+```{r, fig3B.PVH.harmony.keys}
+PVH_h$tech_cluster   <- paste0(PVH_h$tech, "__", PVH_h$cluster)
+PVH_h$tech_condition <- paste0(PVH_h$tech, "__", PVH_h$condition_display)
+```
+
+::: {.panel-tabset}
+
+### 1 — By tech
+
+```{r, fig3B.PVH.harmony.tech, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "tech")
+```
+
+### 2 — By cluster
+
+```{r, fig3B.PVH.harmony.cluster, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "cluster")
+```
+
+### 3 — By condition
+
+```{r, fig3B.PVH.harmony.condition, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "condition_display") +
+  scale_color_manual(values = pvh_cond_colors)
+```
+
+### 4 — By cluster (ATAC full / RNA light)
+
+```{r, fig3B.PVH.harmony.cluster.dual, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "tech_cluster") +
+  scale_color_manual(values = pvh_cluster_dual) +
+  labs(color = "Cluster (filled=ATAC, light=RNA)")
+```
+
+### 5 — By condition (ATAC full / RNA light)
+
+```{r, fig3B.PVH.harmony.condition.dual, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "tech_condition") +
+  scale_color_manual(values = pvh_cond_dual) +
+  labs(color = "Condition (filled=ATAC, light=RNA)")
+```
+
+### By hash ID
+
+```{r, fig3B.PVH.harmony.hash, fig.height=8, fig.width=10}
+DimPlot(PVH_h, reduction = "umap_harmony_cond", group.by = "hash.ID")
+```
+
+:::
+
+```{r}
+rm(PVH_h)
+```
+
+```{r, fig3B.PVH.cell.counts}
+pvh_meta <- PVH@meta.data
+
+rna_tab <- table(Cluster   = pvh_meta$cluster[pvh_meta$tech == "RNA"],
+                 Condition = pvh_meta$condition[pvh_meta$tech == "RNA"])
+knitr::kable(rna_tab, caption = "PVH RNA — cells per cluster × condition")
+
+atac_tab <- table(Cluster   = pvh_meta$cluster[pvh_meta$tech == "ATAC"],
+                  Condition = pvh_meta$group[pvh_meta$tech == "ATAC"])
+knitr::kable(atac_tab, caption = "PVH ATAC — cells per cluster × condition")
+```
+
+## Cluster 22 candidate marker review
+
+::: {.callout-note appearance="minimal"}
+Exploratory review of candidate marker genes for PVH cluster 22. Dotplot, violin plots, and feature plots assess expression specificity across all clusters in the RNA modality.
+:::
+
+```{r, fig3B.PVH.c22.prep}
+c22_genes <- c("Hhip", "Cntnap5c", "Nxph1", "Cybc1", "Syt12")
+
+seu_rna_pvh_all <- subset(PVH, tech == "RNA")
+seu_rna_pvh_all$cluster <- droplevels(seu_rna_pvh_all$cluster)
+Idents(seu_rna_pvh_all) <- "cluster"
+
+# Check availability
+cat("Cluster 22 candidate genes in RNA matrix:\n")
+cat(paste(c22_genes, "->", c22_genes %in% rownames(seu_rna_pvh_all), collapse = "\n"), "\n")
+c22_genes_present <- c22_genes[c22_genes %in% rownames(seu_rna_pvh_all)]
+```
+
+::: {.panel-tabset}
+
+### Dotplot — all clusters
+
+```{r, fig3B.PVH.c22.dotplot, fig.height=8, fig.width=10}
+calPlot_c22 <- calc_dotplot_dat(seu_rna_pvh_all, c22_genes_present)
+
+ggplot(calPlot_c22, aes(x = gene, y = cluster, size = prop, color = exp)) +
+  geom_point() +
+  labs(x = "", y = "Cluster", color = "Mean expression", size = "% expressed",
+       title = "PVH cluster 22 candidate genes — RNA") +
+  scale_color_gradient(low = "white", high = "darkblue") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  geom_rect(data = data.frame(xmin = 0.5, xmax = length(c22_genes_present) + 0.5,
+                               ymin = which(levels(calPlot_c22$cluster) == "22") - 0.5,
+                               ymax = which(levels(calPlot_c22$cluster) == "22") + 0.5),
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            inherit.aes = FALSE, fill = NA, color = "red", linewidth = 0.5)
+```
+
+### Violin plots
+
+```{r, fig3B.PVH.c22.violin, fig.height=10, fig.width=14}
+VlnPlot(seu_rna_pvh_all, features = c22_genes_present,
+        pt.size = 0, ncol = 3) &
+  theme(axis.text.x = element_text(size = 7),
+        axis.title.x = element_blank())
+```
+
+### Feature plots
+
+```{r, fig3B.PVH.c22.feature, fig.height=10, fig.width=14}
+FeaturePlot(seu_rna_pvh_all, features = c22_genes_present,
+            ncol = 3, order = TRUE) &
+  scale_color_gradient(low = "lightgrey", high = "darkblue")
+```
+
+:::
+
+## Marker gene expression across modalities
+
+::: {.callout-tip appearance="minimal"}
+Dotplots and heatmaps show expression of canonical PVH neuronal marker genes across all clusters, for both the RNA (normalised counts) and ATAC (gene activity scores) modalities.
+:::
+
+```{r}
+
+#mark_ge <- c("Agtr1a","Sv2c","Bdnf","Pde3a","Esr2","Iigp1","Plekhg1","Ebf3","Stk26","Lmcd1","Cpa6","Htr1d")
+
+
+mark_ge <- c("Agtr1a","Sv2c","Gm49732","Bdnf","Pde3a","Gm39185","Esr2","Iigp1","Plekhg1","Ebf3","Cpa6","Htr1d", "Gm29771","Cntnap5c", "Nxph1")
+
+seu_rna_pvh  <- subset(PVH, tech == "RNA")
+seu_rna_pvh$cluster  <- droplevels(seu_rna_pvh$cluster)
+
+seu_atac_pvh <- subset(PVH, tech == "ATAC")
+seu_atac_pvh$cluster <- droplevels(seu_atac_pvh$cluster)
+
+# Gene availability check
+rna_genes  <- rownames(seu_rna_pvh)
+atac_genes <- rownames(seu_atac_pvh)
+
+gene_check <- data.frame(
+  Gene        = mark_ge,
+  In_RNA      = mark_ge %in% rna_genes,
+  In_ATAC     = mark_ge %in% atac_genes
+)
+
+knitr::kable(gene_check, caption = "PVH marker gene availability in RNA and ATAC assays")
+
+```
+
+::: {.panel-tabset}
+
+### RNA — dotplot
+
+```{R, fig3B.PVH.RNA.dotplot, fig.height=10, fig.width=15, eval=T}
+
+calPlot_dat <- calc_dotplot_dat(seu_rna_pvh, mark_ge)
+
+ggplot(calPlot_dat, aes(x = gene, y = cluster, size = prop, color = exp)) +
+  geom_point() +
+  labs(x = "", y = "Cluster", color = "Mean expression", size = "% expressed",
+       title = "PVH marker gene expression — RNA") +
+  scale_color_gradient(low = "white", high = "darkblue") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+```
+
+### RNA — heatmap
+
+```{R, fig3B.PVH.RNA.heatmap, fig.height=10, fig.width=15, eval=T}
+
+calPlot_mat <- calc_heatmap_mat(seu_rna_pvh, mark_ge)
+
+pheatmap(calPlot_mat, scale = "row", cluster_rows = FALSE, cluster_cols = FALSE,
+         breaks = breaksList, color = colors_hm,
+         main = "PVH marker gene expression — RNA")
+
+```
+
+### ATAC gene activity — dotplot
+
+```{R, fig3B.PVH.ATAC.dotplot, fig.height=10, fig.width=15, eval=T}
+
+calPlot_dat_atac <- calc_dotplot_dat(seu_atac_pvh, mark_ge)
+
+ggplot(calPlot_dat_atac, aes(x = gene, y = cluster, size = prop, color = exp)) +
+  geom_point() +
+  labs(x = "", y = "Cluster", color = "Mean activity", size = "% active",
+       title = "PVH marker gene activity — ATAC") +
+  scale_color_gradient(low = "white", high = "darkblue") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+```
+
+### ATAC gene activity — heatmap
+
+```{R, fig3B.PVH.ATAC.heatmap, fig.height=10, fig.width=15, eval=T}
+
+calPlot_mat_atac <- calc_heatmap_mat(seu_atac_pvh, mark_ge)
+
+pheatmap(calPlot_mat_atac, scale = "row", cluster_rows = FALSE, cluster_cols = FALSE,
+         breaks = breaksList, color = colors_hm,
+         main = "PVH marker gene activity — ATAC")
+
+```
+
+:::
+
+# Fig 3C — Coordinated transcriptional and chromatin changes in ARC AgRP/LepR neurons (Cluster 0)
+
+::: {.callout-tip appearance="minimal"}
+Genes consistently upregulated in the ob/ob condition were identified in ARC cluster 0 (AgRP/LepR neurons). For each gene, the Pearson correlation between RNA expression and ATAC gene activity across conditions was computed. This separates genes with **coordinated chromatin remodeling** (high RNA–ATAC correlation) from those that change transcriptionally **without corresponding accessibility changes** (low RNA–ATAC correlation). Z-score heatmaps show per-condition averages; the ATAC row order is locked to the RNA hierarchical clustering to enable direct visual comparison.
+:::
+
+::: {.panel-tabset}
+
+### High OB expression, concordant ATAC (top 500 by RNA–ATAC correlation)
+
+```{r, fig3C.ARC.most.corr.prep}
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+clean_conditions_rna <- function(x) {
+  x <- gsub("leptinARC3h",  "lep3h",  x)
+  x <- gsub("leptinARC24h", "lep27h", x)
+  x <- gsub("leptinARC72h", "lep75h", x)
+  x <- gsub("Leptin3hr",    "lep3h",  x)
+  x <- gsub("Leptin24hr",   "lep27h", x)
+  x <- gsub("Leptin72hr",   "lep75h", x)
+  x <- gsub("^ob$",         "OB",     x)
+  x <- gsub("^wt$",         "WT",     x)
+  factor(x, levels = c("OB","lep3h","lep27h","lep75h","WT"))
+}
+
+clean_conditions_atac <- function(x) {
+  x <- gsub("Leptin3hr",  "lep3h",  x)
+  x <- gsub("Leptin24hr", "lep27h", x)
+  x <- gsub("Leptin72hr", "lep75h", x)
+  x <- gsub("^ob$",       "OB",     x)
+  x <- gsub("^wt$",       "WT",     x)
+  factor(x, levels = c("OB","lep3h","lep27h","lep75h","WT"))
+}
+
+avg_by_condition <- function(mat, meta_col) {
+  lvls <- levels(meta_col)
+  out  <- sapply(lvls, function(cond) {
+    idx <- which(meta_col == cond)
+    if (length(idx) == 0) return(rep(NA_real_, nrow(mat)))
+    rowMeans(mat[, idx, drop = FALSE])
+  })
+  out
+}
+
+# ── 1. RNA + ATAC: subset cluster 0 and compute per-condition averages ────────
+seu_rna_c0  <- subset(ARC, tech == "RNA"  & cluster == "0")
+seu_atac_c0 <- subset(ARC, tech == "ATAC" & cluster == "0")
+
+mat_rna  <- as.matrix(GetAssayData(seu_rna_c0,  slot = "data"))
+mat_atac <- as.matrix(GetAssayData(seu_atac_c0, slot = "data"))
+
+cond_rna  <- clean_conditions_rna(seu_rna_c0$condition)
+cond_atac <- clean_conditions_atac(seu_atac_c0$group)
+
+avg_rna  <- avg_by_condition(mat_rna,  cond_rna)
+avg_atac <- avg_by_condition(mat_atac, cond_atac)
+
+# ── 2. Identify genes consistently upregulated in OB ────────────────────────
+#    OB average must be strictly higher than every other condition's average
+#    (NA in another condition counts as OB being higher)
+other_conds <- setdiff(colnames(avg_rna), "OB")
+ob_gt_all   <- apply(avg_rna[, other_conds, drop = FALSE], 2,
+                     function(x) is.na(x) | avg_rna[, "OB"] > x)
+genes_ob_dn <- rownames(avg_rna)[rowSums(ob_gt_all, na.rm = TRUE) == length(other_conds)]
+
+# ── 3. Compute RNA–ATAC correlation for all OB-high genes; keep top 500 ───────
+shared_genes <- intersect(genes_ob_dn, rownames(avg_atac))
+gene_cors <- sapply(shared_genes, function(g) {
+  rna_vec  <- avg_rna[g, ]
+  atac_vec <- avg_atac[g, ]
+  keep     <- !is.na(rna_vec) & !is.na(atac_vec)
+  if (sum(keep) < 3) return(NA_real_)
+  if (sd(rna_vec[keep]) == 0 || sd(atac_vec[keep]) == 0) return(NA_real_)
+  cor(rna_vec[keep], atac_vec[keep])
+})
+gene_cors <- sort(gene_cors, decreasing = TRUE, na.last = NA)
+if (length(genes_ob_dn) > 500) {
+  genes_ob_dn <- names(gene_cors)[1:min(500, length(gene_cors))]
+}
+
+cat("Genes consistently upregulated in OB (cluster 0 RNA):", length(genes_ob_dn), "\n")
+
+# ── 4. Drop empty conditions and find genes complete in BOTH RNA and ATAC ────
+# Remove conditions (columns) with no cells in either modality
+rna_keep_conds  <- colSums(!is.na(avg_rna))  > 0
+atac_keep_conds <- colSums(!is.na(avg_atac)) > 0
+
+avg_rna_filt  <- avg_rna[,  rna_keep_conds,  drop = FALSE]
+avg_atac_filt <- avg_atac[, atac_keep_conds, drop = FALSE]
+
+cat("RNA conditions with cells: ",  paste(colnames(avg_rna_filt),  collapse=", "), "\n")
+cat("ATAC conditions with cells: ", paste(colnames(avg_atac_filt), collapse=", "), "\n")
+
+# Keep only genes present in both matrices with no NA and non-zero variance
+genes_rna_ok  <- genes_ob_dn[
+  genes_ob_dn %in% rownames(avg_rna_filt) &
+  apply(avg_rna_filt[genes_ob_dn[genes_ob_dn %in% rownames(avg_rna_filt)], , drop=FALSE],
+        1, function(x) all(!is.na(x)) && sd(x) > 0)
+]
+genes_final <- intersect(
+  genes_rna_ok,
+  rownames(avg_atac_filt)[
+    apply(avg_atac_filt[rownames(avg_atac_filt) %in% genes_rna_ok, , drop=FALSE],
+          1, function(x) all(!is.na(x)) && sd(x) > 0)
+  ]
+)
+
+cat("Genes passing NA/variance filter in both modalities:", length(genes_final), "\n")
+
+# ── 5. Z-score matrices using the shared complete gene set ────────────────────
+zscore_rna  <- t(scale(t(avg_rna_filt[genes_final,  , drop = FALSE])))
+zscore_atac <- t(scale(t(avg_atac_filt[genes_final, , drop = FALSE])))
+
+# ── 6. RNA heatmap with hierarchical row clustering ───────────────────────────
+colors    <- colorRampPalette(c("blue","white","red"))(400)
+breaks_hm <- seq(-2, 2, by = 0.01)
+
+# Extract hierarchical clustering row order — shared across both heatmaps
+p_rna_clust <- pheatmap(zscore_rna, cluster_rows = TRUE, cluster_cols = FALSE,
+                         silent = TRUE)
+genes_ordered   <- rownames(zscore_rna)[p_rna_clust$tree_row$order]
+zscore_atac_ord <- zscore_atac[genes_ordered, , drop = FALSE]
+
+# Preserve gene order for downstream use
+arc_clust0_ob_dn_gene_order <- genes_final
+
+dir.create("tables", showWarnings = FALSE)
+write.csv(data.frame(gene = genes_ordered, row = seq_along(genes_ordered)),
+          "tables/ARC_clust0_OB_high_most_corr_genes.csv", row.names = FALSE)
+
+```
+
+```{R, fig3C.ARC.most.corr.RNA, fig.height=10, fig.width=8}
+
+pheatmap(zscore_rna[genes_ordered, , drop = FALSE],
+         main           = "ARC Cluster 0 | RNA\nZ-score avg expression per condition\n(OB consistently upregulated genes)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = FALSE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0)
+
+```
+
+```{R, fig3C.ARC.most.corr.ATAC, fig.height=10, fig.width=8}
+
+pheatmap(zscore_atac_ord,
+         main           = "ARC Cluster 0 | ATAC gene activity\nZ-score avg per condition\n(row order from RNA clustering)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = FALSE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0)
+
+```
+
+### Least concordant RNA–ATAC genes (bottom 500 by correlation, all cluster 0 genes)
+
+::: {.callout-tip appearance="minimal"}
+All cluster 0 genes present in both RNA and ATAC modalities are ranked by RNA–ATAC correlation across conditions. The bottom 500 (least correlated) are shown here with no OB-high prerequisite. These genes show the greatest discordance between transcriptional and chromatin accessibility dynamics, suggesting their expression may be regulated independently of large-scale chromatin remodeling.
+:::
+
+```{r, fig3C.ARC.least.corr.prep}
+
+# ── All genes in cluster 0: keep the 500 LEAST correlated RNA-ATAC ───────────
+# No OB constraint — compute correlations across all genes present in both
+# avg_rna_filt and avg_atac_filt already computed above
+
+all_shared <- intersect(rownames(avg_rna_filt), rownames(avg_atac_filt))
+
+gene_cors_lc <- sapply(all_shared, function(g) {
+  rna_vec  <- avg_rna_filt[g, ]
+  atac_vec <- avg_atac_filt[g, ]
+  keep     <- !is.na(rna_vec) & !is.na(atac_vec)
+  if (sum(keep) < 3) return(NA_real_)
+  if (sd(rna_vec[keep]) == 0 || sd(atac_vec[keep]) == 0) return(NA_real_)
+  cor(rna_vec[keep], atac_vec[keep])
+})
+
+gene_cors_lc <- sort(gene_cors_lc, decreasing = FALSE, na.last = NA)
+genes_lc     <- names(gene_cors_lc)[1:min(500, length(gene_cors_lc))]
+
+# NA/variance filter in both modalities
+genes_lc_rna_ok <- genes_lc[
+  apply(avg_rna_filt[genes_lc, , drop = FALSE],
+        1, function(x) all(!is.na(x)) && sd(x) > 0)
+]
+genes_lc_final <- genes_lc_rna_ok[
+  apply(avg_atac_filt[genes_lc_rna_ok, , drop = FALSE],
+        1, function(x) all(!is.na(x)) && sd(x) > 0)
+]
+
+cat("Least-correlated genes passing filter:", length(genes_lc_final), "\n")
+
+zscore_rna_lc  <- t(scale(t(avg_rna_filt[genes_lc_final,  , drop = FALSE])))
+zscore_atac_lc <- t(scale(t(avg_atac_filt[genes_lc_final, , drop = FALSE])))
+
+colors    <- colorRampPalette(c("blue","white","red"))(400)
+breaks_hm <- seq(-2, 2, by = 0.01)
+
+p_rna_lc_clust <- pheatmap(zscore_rna_lc, cluster_rows = TRUE, cluster_cols = FALSE,
+                            silent = TRUE)
+genes_ordered_lc   <- rownames(zscore_rna_lc)[p_rna_lc_clust$tree_row$order]
+zscore_atac_lc_ord <- zscore_atac_lc[genes_ordered_lc, , drop = FALSE]
+
+arc_clust0_ob_least_corr_gene_order <- genes_ordered_lc
+
+write.csv(data.frame(gene = genes_ordered_lc, row = seq_along(genes_ordered_lc)),
+          "tables/ARC_clust0_least_corr_genes.csv", row.names = FALSE)
+
+```
+
+```{R, fig3C.ARC.least.corr.RNA, fig.height=10, fig.width=8}
+
+pheatmap(zscore_rna_lc[genes_ordered_lc, , drop = FALSE],
+         main           = "ARC Cluster 0 | RNA\nZ-score avg expression per condition\n(least RNA-ATAC correlated genes, all cluster 0)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = FALSE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0)
+
+```
+
+```{R, fig3C.ARC.least.corr.ATAC, fig.height=10, fig.width=8}
+
+pheatmap(zscore_atac_lc_ord,
+         main           = "ARC Cluster 0 | ATAC gene activity\nZ-score avg per condition\n(least correlated, row order from RNA clustering)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = FALSE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0)
+
+```
+
+### High OB expression, concordant ATAC (top 50 by RNA–ATAC correlation)
+
+::: {.callout-tip appearance="minimal"}
+Same selection logic as the top-500 tab but restricted to the 50 genes with the highest RNA–ATAC correlation. Row names are shown to allow gene-level inspection.
+:::
+
+```{r, fig3C.ARC.top50.corr.prep}
+
+# Reuse gene_cors from the most-correlated prep above (already sorted decreasing)
+genes_top50 <- names(gene_cors)[1:min(50, length(gene_cors))]
+
+genes_top50_rna_ok <- genes_top50[
+  apply(avg_rna_filt[genes_top50, , drop = FALSE],
+        1, function(x) all(!is.na(x)) && sd(x) > 0)
+]
+genes_top50_final <- genes_top50_rna_ok[
+  apply(avg_atac_filt[genes_top50_rna_ok, , drop = FALSE],
+        1, function(x) all(!is.na(x)) && sd(x) > 0)
+]
+
+zscore_rna_t50  <- t(scale(t(avg_rna_filt[genes_top50_final,  , drop = FALSE])))
+zscore_atac_t50 <- t(scale(t(avg_atac_filt[genes_top50_final, , drop = FALSE])))
+
+p_t50_clust         <- pheatmap(zscore_rna_t50, cluster_rows = TRUE, cluster_cols = FALSE, silent = TRUE)
+genes_ordered_t50   <- rownames(zscore_rna_t50)[p_t50_clust$tree_row$order]
+zscore_atac_t50_ord <- zscore_atac_t50[genes_ordered_t50, , drop = FALSE]
+
+write.csv(data.frame(gene = genes_ordered_t50, row = seq_along(genes_ordered_t50)),
+          "tables/ARC_clust0_OB_high_top50_corr_genes.csv", row.names = FALSE)
+
+```
+
+```{R, fig3C.ARC.top50.corr.RNA, fig.height=6, fig.width=8}
+
+pheatmap(zscore_rna_t50[genes_ordered_t50, , drop = FALSE],
+         main           = "ARC Cluster 0 | RNA\nZ-score avg expression per condition\n(top 50 most correlated OB-high genes)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = TRUE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0,
+         fontsize_row   = 7)
+
+```
+
+```{R, fig3C.ARC.top50.corr.ATAC, fig.height=6, fig.width=8}
+
+pheatmap(zscore_atac_t50_ord,
+         main           = "ARC Cluster 0 | ATAC gene activity\nZ-score avg per condition\n(top 50 most correlated, row order from RNA clustering)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = TRUE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0,
+         fontsize_row   = 7)
+
+```
+
+### Least concordant RNA–ATAC genes (bottom 50 by correlation, all cluster 0 genes)
+
+::: {.callout-tip appearance="minimal"}
+Same selection logic as the bottom-500 tab but restricted to the 50 genes with the lowest RNA–ATAC correlation. Row names are shown to allow gene-level inspection.
+:::
+
+```{r, fig3C.ARC.bot50.corr.prep}
+
+# Reuse gene_cors_lc from the least-correlated prep above (already sorted increasing)
+genes_bot50 <- names(gene_cors_lc)[1:min(50, length(gene_cors_lc))]
+
+genes_bot50_rna_ok <- genes_bot50[
+  apply(avg_rna_filt[genes_bot50, , drop = FALSE],
+        1, function(x) all(!is.na(x)) && sd(x) > 0)
+]
+genes_bot50_final <- genes_bot50_rna_ok[
+  apply(avg_atac_filt[genes_bot50_rna_ok, , drop = FALSE],
+        1, function(x) all(!is.na(x)) && sd(x) > 0)
+]
+
+zscore_rna_b50  <- t(scale(t(avg_rna_filt[genes_bot50_final,  , drop = FALSE])))
+zscore_atac_b50 <- t(scale(t(avg_atac_filt[genes_bot50_final, , drop = FALSE])))
+
+p_b50_clust         <- pheatmap(zscore_rna_b50, cluster_rows = TRUE, cluster_cols = FALSE, silent = TRUE)
+genes_ordered_b50   <- rownames(zscore_rna_b50)[p_b50_clust$tree_row$order]
+zscore_atac_b50_ord <- zscore_atac_b50[genes_ordered_b50, , drop = FALSE]
+
+write.csv(data.frame(gene = genes_ordered_b50, row = seq_along(genes_ordered_b50)),
+          "tables/ARC_clust0_bot50_corr_genes.csv", row.names = FALSE)
+
+```
+
+```{R, fig3C.ARC.bot50.corr.RNA, fig.height=6, fig.width=8}
+
+pheatmap(zscore_rna_b50[genes_ordered_b50, , drop = FALSE],
+         main           = "ARC Cluster 0 | RNA\nZ-score avg expression per condition\n(bottom 50 least correlated genes, all cluster 0)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = TRUE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0,
+         fontsize_row   = 7)
+
+```
+
+```{R, fig3C.ARC.bot50.corr.ATAC, fig.height=6, fig.width=8}
+
+pheatmap(zscore_atac_b50_ord,
+         main           = "ARC Cluster 0 | ATAC gene activity\nZ-score avg per condition\n(bottom 50 least correlated, row order from RNA clustering)",
+         cluster_rows   = FALSE,
+         cluster_cols   = FALSE,
+         show_rownames  = TRUE,
+         show_colnames  = TRUE,
+         breaks         = breaks_hm,
+         color          = colors,
+         treeheight_row = 0,
+         fontsize_row   = 7)
+
+```
+
+:::
+
+# Fig 3D — SCENIC+ regulon activity in ARC neurons
+
+*Pending — SCENIC+ output figures to be added here.*
+
+# Fig 3E — SCENIC+ regulon activity in PVH neurons
+
+*Pending — SCENIC+ output figures to be added here.*
+
+# Fig 3F — STAT3 chromatin occupancy at motif sites in LepR neuron subtypes (Clusters 0, 3, 17)
+
+::: {.callout-tip appearance="minimal"}
+STAT3 (MA0144.1) footprint analysis in snATAC-seq data from ARC LepR neuron subtypes: cluster 0 (AgRP/LepR), cluster 3 (POMC/LepR), and cluster 17 (BNC2/LepR). Tn5 insertion enrichment around STAT3 binding motifs is shown per condition, smoothed over a ±7 bp window and restricted to positions within 100 bp of the motif centre.
+:::
+
+## Data loading and motif annotation
+
+```{r, eval=T}
+
+seu_atac <- readRDS("../Data.Objects/seuATAC_allSample_ARC.rds")
+DefaultAssay(seu_atac) <- "ATAC"
+seu_atac[["tech"]] <- "ATAC"
+
+seu_atac@assays$ATAC@fragments[[1]]@path <- '../Data.Objects/frags/fragments.tsv.gz'
+
+names_1 <- names(ARC$cluster)
+names_2 <- names(seu_atac$orig.ident)
+seu_atac$keep <- names_2 %in% names_1
+
+seu_atac_sub <- subset(seu_atac, keep)
+seu_atac_sub$cluster <- ARC$cluster[match(names(seu_atac_sub$orig.ident), names(ARC$cluster))]
+
+```
+
+```{r}
+
+motif_ids <- c("MA0523.1", "MA0498.1", "MA0144.1")
+
+opts <- list(ID = motif_ids)
+
+pwm <- getMatrixSet(x = JASPAR2022, opts = opts)
+
+pwm_plus <- pwm[3]  # MA0144.1 = STAT3
+
+ARC_motif <- AddMotifs(seu_atac_sub, genome = BSgenome.Mmusculus.UCSC.mm10, pfm = pwm_plus)
+
+# ── Run Footprint on the full object, then subset per cluster ─────────────────
+# Footprint() needs all peaks across all clusters to sample all 4096 hexamers
+# for insertion bias correction. Subsetting before footprinting causes the
+# "Not all hexamers represented" error on small cluster subsets.
+# Run Footprint on the full object — subsetting before footprinting causes
+# "Not all hexamers represented" errors on small cluster subsets.
+# Cluster filtering is done per-plot via the idents argument instead.
+ARC_motif <- Footprint(object = ARC_motif, motif.name = "MA0144.1",
+                       genome = BSgenome.Mmusculus.UCSC.mm10, in.peaks = FALSE)
+
+
+```
+
+```{r, fig3F.footprint.function, eval=T}
+
+custom_footprint_plot3 <- function(object, features, group.by = NULL,
+                                   cluster.use = NULL, cluster.col = "cluster",
+                                   normalization = "subtract") {
+
+  # Build a combined cluster__condition grouping so GetFootprintData runs on
+  # the full object (needed for hexamer coverage) but results can be filtered
+  # to a single cluster afterwards without using the broken idents path.
+  if (!is.null(cluster.use)) {
+    object$fp_group <- paste(object[[cluster.col]][, 1],
+                             object[[group.by]][, 1], sep = "__")
+    fp_group.by <- "fp_group"
+  } else {
+    fp_group.by <- group.by
+  }
+
+  assay     <- Seurat::DefaultAssay(object = object)
+  plot.data <- GetFootprintData(object = object, features = features,
+                                assay = assay, group.by = fp_group.by)
+
+  # GetFootprintData may return a list in some Signac versions — normalise to df
+  if (!is.data.frame(plot.data)) plot.data <- do.call(rbind, plot.data)
+
+  plot.data %<>% dplyr::filter(abs(position) <= 200)
+
+  # Filter Observed rows to the requested cluster; keep all Expected rows
+  # (Expected rows are needed for bias normalisation regardless of cluster)
+  if (!is.null(cluster.use)) {
+    prefix    <- paste0(cluster.use, "__")
+    keep      <- (plot.data$class == "Observed" & grepl(paste0("^", prefix), plot.data$group)) |
+                  plot.data$class == "Expected"
+    plot.data <- plot.data[keep, ]
+    plot.data$group <- sub(paste0("^", prefix), "", plot.data$group)
+  }
+
+  motif.sizes <- Signac:::GetMotifSize(object = object, features = features, assay = assay)
+  obs    <- plot.data[plot.data$class == "Observed", ]
+  expect <- plot.data[plot.data$class == "Expected", ]
+  base   <- ceiling(motif.sizes / 2)
+
+  obs$flanks <- sapply(seq_len(nrow(obs)), function(x) {
+    pos  <- abs(obs[x, "position"])
+    size <- base[[obs[x, "feature"]]]
+    (pos > size) & (pos < (size + 50))
+  })
+
+  if (!is.null(normalization)) {
+    correction.vec <- setNames(expect$norm.value, paste(expect$position, expect$feature))
+    obs$norm.value <- obs$norm.value - correction.vec[paste(obs$position, obs$feature)]
+  }
+
+  # Recode raw object condition labels to display labels
+  obs$group <- dplyr::recode(obs$group,
+    "Leptin3hr"  = "Lep3h",
+    "Leptin24hr" = "Lep27h",
+    "Leptin72hr" = "Lep75h",
+    "Leptin27hr" = "Lep27h",
+    "Leptin75hr" = "Lep75h",
+    "ob"         = "OB",
+    "wt"         = "WT"
+  )
+
+  i <- 1
+  df <- obs[obs$feature == features[[i]], ]
+
+  final_mat <- lapply(unique(df$group), function(grp) {
+    df_temp <- df %>%
+      filter(group == grp) %>%
+      group_by(position) %>%
+      summarise(mean_norm = mean(norm.value), .groups = "drop")
+    df_temp$mean_norm_slide <- slide_dbl(df_temp$mean_norm, mean, .before = 7, .after = 7)
+    df_temp$group <- grp
+    dplyr::filter(df_temp, abs(position) < 101)
+  })
+  df <- do.call(rbind, final_mat)
+
+  axis.min <- range(df$mean_norm_slide)[1] - diff(range(df$mean_norm_slide)) / 10
+  axis.max <- range(df$mean_norm_slide)[2] + diff(range(df$mean_norm_slide)) / 10
+
+  ggplot(df, aes(x = position, y = mean_norm_slide, color = group)) +
+    scale_color_manual(values = arc_cond_colors_raw) +
+    geom_line(linewidth = 0.5) +
+    xlab("Distance from motif (bp)") +
+    ylab("Tn5 insertion enrichment") +
+    theme_classic() +
+    ylim(c(axis.min, axis.max)) +
+    guides(color = guide_legend(override.aes = list(linewidth = 1)))
+}
+
+```
+
+## STAT3 footprint per cluster
+
+::: {.panel-tabset}
+
+### Cluster 0 — AgRP / LepR
+
+```{R, fig3F.ARC.Cluster0.STAT3.accessibility, fig.height=10, fig.width=15, eval=T}
+
+custom_footprint_plot3(ARC_motif, features = "MA0144.1", group.by = "group",
+                       cluster.use = "0", cluster.col = "cluster") +
+  plot_annotation("STAT3 motif accessibility — Cluster 0 (AgRP / LepR neurons)")
+
+```
+
+### Cluster 3 — POMC / LepR
+
+```{R, fig3F.ARC.Cluster3.STAT3.accessibility, fig.height=10, fig.width=15, eval=T}
+
+custom_footprint_plot3(ARC_motif, features = "MA0144.1", group.by = "group",
+                       cluster.use = "3", cluster.col = "cluster") +
+  plot_annotation("STAT3 motif accessibility — Cluster 3 (POMC / LepR neurons)")
+
+```
+
+### Cluster 17 — BNC2 / LepR
+
+```{R, fig3F.ARC.Cluster17.STAT3.accessibility, fig.height=10, fig.width=15, eval=T}
+
+custom_footprint_plot3(ARC_motif, features = "MA0144.1", group.by = "group",
+                       cluster.use = "17", cluster.col = "cluster") +
+  plot_annotation("STAT3 motif accessibility — Cluster 17 (BNC2 / LepR neurons)")
+
+```
+
+:::
+
+# Fig 3G — STAT3 target gene expression across ARC neuronal subtypes (WT)
+
+::: {.callout-tip appearance="minimal"}
+STAT3 target genes were identified by intersecting SCENIC+ eRegulon regions (Stat3 TF) with region-to-gene importance scores from the multiome CRE-gene linkage analysis. Expression of these targets (scaled RNA) is shown in WT mice across ARC clusters 0 (AgRP/LepR), 3 (POMC/LepR), and 17 (BNC2/LepR), averaged per cluster. Hierarchical clustering of genes reveals **distinct expression programs across neuronal subtypes despite shared STAT3 activation**.
+:::
+
+```{r}
+
+library(stringr)
+
+grp_colors <- arc_cond_colors
+
+seu <- subset(ARC, tech=="RNA")
+
+# ── Capture HVG background BEFORE subsetting to STAT3 targets ────────────────
+# VariableFeatures may be empty on a subsetted object; fall back to the parent,
+# and if that is also empty recompute from scratch on the RNA subset.
+hvg_background <- VariableFeatures(seu)
+if (length(hvg_background) == 0) {
+  hvg_background <- VariableFeatures(ARC)
+  cat("VariableFeatures empty on RNA subset — trying parent ARC object\n")
+}
+if (length(hvg_background) == 0) {
+  cat("No variable features stored — running FindVariableFeatures (nfeatures = 3000)\n")
+  seu_tmp        <- FindVariableFeatures(seu, nfeatures = 3000, verbose = FALSE)
+  hvg_background <- VariableFeatures(seu_tmp)
+  rm(seu_tmp)
+}
+# Restrict to genes actually present in the RNA assay
+hvg_background <- intersect(hvg_background, rownames(seu))
+cat("HVG background genes:", length(hvg_background), "\n")
+
+ereg <- rtracklayer::import("../Data.Objects/scenic_plus_res2/arc/eRegulons.bed")
+r2g <- read.table("../Data.Objects/scenic_plus_res2/arc/r2g.importance.bed", sep ="\t")
+
+tf <- str_split(ereg$name, "_", simplify = T) %>% .[,1]
+stat3 <- as.data.frame(ereg[tf %in% "Stat3"])
+
+r2g$V3 <- r2g$V3-499
+r2g$V2 <- r2g$V2-500
+
+# ── All regulon target genes as background (all TFs, not just STAT3) ──────────
+all_regulon_background <- unique(r2g$V17)
+cat("All-regulon background genes:", length(all_regulon_background), "\n")
+
+motif_hits <- merge(stat3, r2g, by.x=c("seqnames","start"), by.y=c("V1","V3") )
+seu <- seu[which(rownames(seu) %in% motif_hits$V17)]
+
+```
+
+```{r}
+
+# Cells × gene scaled matrix (scale.data must be pre-computed in the object)
+scaled_all <- GetAssayData(object = seu, slot = "scale.data")
+if (nrow(scaled_all) == 0) stop("scale.data slot is empty — run ScaleData() before proceeding")
+
+data <- as.data.frame(t(as.matrix(scaled_all)))
+
+# Reshape to genes × cells
+data3 <- as.data.frame(t(data))
+
+my_meta <- data.frame(
+  cluster = seu$cluster,
+  group   = seu$condition,
+  stringsAsFactors = FALSE
+)
+
+my_meta$group <- gsub("leptinARC3h",  "lep3h",  my_meta$group)
+my_meta$group <- gsub("leptinARC24h", "lep27h", my_meta$group)
+my_meta$group <- gsub("leptinARC72h", "lep75h", my_meta$group)
+my_meta$group <- factor(my_meta$group, levels = c("ob", "lep3h", "lep27h", "lep75h", "wt"))
+
+my_meta <- my_meta[order(my_meta$cluster, my_meta$group), ]
+
+my_meta_sub <- my_meta[my_meta$cluster %in% c("0", "3", "17"), ]
+data3_sub   <- data3[, rownames(my_meta_sub), drop = FALSE]
+for_plot    <- data3_sub[, match(rownames(my_meta_sub), colnames(data3_sub))]
+
+colors     <- colorRampPalette(c("blue", "white", "red"))(400)
+breaksList <- seq(-2, 2, by = 0.01)
+
+```
+
+## Heatmap: all STAT3 targets, averaged per cluster
+
+```{r, fig3G.ARC.STAT3.targets.prep}
+
+set.seed("42")
+
+grps <- unique(my_meta_sub)
+
+for_plot2 <- sapply(1:nrow(grps), function(x){
+  for_out <- rowMeans(for_plot[, my_meta_sub[,1] == grps[x,1] & my_meta_sub[,2] == grps[x,2], drop = FALSE])
+  return(for_out)
+})
+
+colnames(for_plot2) <- apply(grps, 1, paste0, collapse = "_")
+rownames(grps) <- colnames(for_plot2)
+
+# Keep only WT columns, filter genes with zero variance across WT clusters
+for_plot3 <- for_plot2[
+  !apply(for_plot2[, grepl("wt", colnames(for_plot2)), drop = FALSE], 1, var) == 0,
+  grepl("wt", colnames(for_plot2))
+]
+
+```
+
+```{R, fig3G.ARC.STAT3.targets, fig.height=9, fig.width=4}
+
+# First pass: derive gene order via hierarchical clustering
+p_clust <- pheatmap(for_plot3,
+                    cutree_rows = 8,
+                    scale       = "row",
+                    silent      = TRUE)
+
+row_meta_g <- data.frame(gene_cluster = factor(cutree(p_clust$tree_row, k = 8)))
+
+# Final plot: fixed row order, gene cluster annotation
+p_final <- pheatmap(
+  for_plot3[p_clust$tree_row$order, ],
+  main             = "STAT3 target gene expression\n(WT — cluster 0: AgRP/LepR | cluster 3: POMC/LepR | cluster 17: BNC2/LepR)",
+  scale            = "row",
+  annotation_row   = row_meta_g,
+  cluster_cols     = FALSE,
+  cluster_rows     = FALSE,
+  show_rownames    = FALSE,
+  show_colnames    = TRUE,
+  breaks           = breaksList,
+  color            = colors,
+  silent           = TRUE
+)
+
+print(p_final)
+
+# Export gene order
+dir.create("tables", showWarnings = FALSE)
+gene_order_g3g <- rownames(for_plot3)[p_clust$tree_row$order]
+write.csv(
+  data.frame(
+    gene         = gene_order_g3g,
+    gene_cluster = cutree(p_clust$tree_row, k = 6)[p_clust$tree_row$order],
+    row          = seq_along(gene_order_g3g)
+  ),
+  "tables/ARC_STAT3_targets_wt_clust0_3_17_gene_order.csv",
+  row.names = FALSE
+)
+
+row_meta_all <- row_meta_g
+```
+
+# Fig 3H — Gene ontology enrichment of STAT3 target gene clusters
+
+::: {.callout-tip appearance="minimal"}
+GO biological process (BP) over-representation analysis was run on each gene cluster identified in Fig 3G using `clusterProfiler::compareCluster`. Three background gene sets are compared across tabs:
+
+- **Whole genome** — default `org.Mm.eg.db` background (no universe restriction)
+- **HVGs** — Seurat highly variable genes from the RNA component of the ARC object (computed before subsetting to STAT3 targets)
+- **All regulon targets** — all SCENIC+ peak-to-gene target genes across all TFs (the full `r2g` table), providing a regulon-aware background
+:::
+
+```{r, fig3H.ARC.STAT3.clusters.GSA.shared}
+
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+# Gene cluster lists — shared across all three background approaches
+mydf    <- row_meta_all
+levs    <- levels(mydf$gene_cluster)
+for_out <- sapply(levs, function(x) rownames(mydf)[mydf$gene_cluster == x])
+names(for_out) <- paste0("Cluster ", levs)
+
+```
+
+::: {.panel-tabset}
+
+### Whole genome background
+
+::: {.panel-tabset}
+
+#### GO:BP
+
+```{r, fig3H.genome.bp.prep}
+
+test_res_genome_bp <- compareCluster(for_out, "enrichGO",
+                       OrgDb         = org.Mm.eg.db,
+                       ont           = "BP",
+                       pAdjustMethod = "BH",
+                       keyType       = "SYMBOL",
+                       pvalueCutoff  = 1,
+                       qvalueCutoff  = 1)
+
+test_res_genome_bp@compareClusterResult$Description <- str_wrap(
+  test_res_genome_bp@compareClusterResult$Description, width = 50)
+
+dir.create("tables", showWarnings = FALSE)
+write.csv(as.data.frame(test_res_genome_bp),
+          "tables/ARC_STAT3_GO_BP_genome_bg.csv", row.names = FALSE)
+
+```
+
+```{R, fig3H.genome.bp.top5, fig.height=8, fig.width=9}
+
+dotplot(test_res_genome_bp, showCategory = 5) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:BP — top 5 terms per cluster\n(background: whole genome)")
+
+```
+
+```{R, fig3H.genome.bp.top3, fig.height=6, fig.width=9}
+
+dotplot(test_res_genome_bp, showCategory = 3) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:BP — top 3 terms per cluster\n(background: whole genome)")
+
+```
+
+#### GO:MF
+
+```{r, fig3H.genome.mf.prep}
+
+test_res_genome_mf <- compareCluster(for_out, "enrichGO",
+                       OrgDb         = org.Mm.eg.db,
+                       ont           = "MF",
+                       pAdjustMethod = "BH",
+                       keyType       = "SYMBOL",
+                       pvalueCutoff  = 1,
+                       qvalueCutoff  = 1)
+
+test_res_genome_mf@compareClusterResult$Description <- str_wrap(
+  test_res_genome_mf@compareClusterResult$Description, width = 50)
+
+write.csv(as.data.frame(test_res_genome_mf),
+          "tables/ARC_STAT3_GO_MF_genome_bg.csv", row.names = FALSE)
+
+```
+
+```{R, fig3H.genome.mf.top5, fig.height=8, fig.width=9}
+
+dotplot(test_res_genome_mf, showCategory = 5) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:MF — top 5 terms per cluster\n(background: whole genome)")
+
+```
+
+```{R, fig3H.genome.mf.top3, fig.height=6, fig.width=9}
+
+dotplot(test_res_genome_mf, showCategory = 3) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:MF — top 3 terms per cluster\n(background: whole genome)")
+
+```
+
+:::
+
+### HVG background
+
+::: {.panel-tabset}
+
+#### GO:BP
+
+```{r, fig3H.hvg.bp.prep}
+
+cat("HVG universe size:", length(hvg_background), "\n")
+cat("Foreground genes in HVG universe:",
+    sum(unlist(for_out) %in% hvg_background), "/", length(unlist(for_out)), "\n")
+
+test_res_hvg_bp <- compareCluster(for_out, "enrichGO",
+                    OrgDb         = org.Mm.eg.db,
+                    universe      = hvg_background,
+                    ont           = "BP",
+                    pAdjustMethod = "BH",
+                    keyType       = "SYMBOL",
+                    pvalueCutoff  = 1,
+                    qvalueCutoff  = 1)
+
+if (is.null(test_res_hvg_bp)) stop("compareCluster returned NULL — check foreground/HVG universe overlap")
+
+test_res_hvg_bp@compareClusterResult$Description <- str_wrap(
+  test_res_hvg_bp@compareClusterResult$Description, width = 50)
+
+write.csv(as.data.frame(test_res_hvg_bp),
+          "tables/ARC_STAT3_GO_BP_hvg_bg.csv", row.names = FALSE)
+
+```
+
+```{R, fig3H.hvg.bp.top5, fig.height=8, fig.width=9}
+
+dotplot(test_res_hvg_bp, showCategory = 5) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:BP — top 5 terms per cluster\n(background: Seurat HVGs)")
+
+```
+
+```{R, fig3H.hvg.bp.top3, fig.height=6, fig.width=9}
+
+dotplot(test_res_hvg_bp, showCategory = 3) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:BP — top 3 terms per cluster\n(background: Seurat HVGs)")
+
+```
+
+#### GO:MF
+
+```{r, fig3H.hvg.mf.prep}
+
+test_res_hvg_mf <- compareCluster(for_out, "enrichGO",
+                    OrgDb         = org.Mm.eg.db,
+                    universe      = hvg_background,
+                    ont           = "MF",
+                    pAdjustMethod = "BH",
+                    keyType       = "SYMBOL",
+                    pvalueCutoff  = 1,
+                    qvalueCutoff  = 1)
+
+if (is.null(test_res_hvg_mf)) stop("compareCluster returned NULL — check foreground/HVG universe overlap")
+
+test_res_hvg_mf@compareClusterResult$Description <- str_wrap(
+  test_res_hvg_mf@compareClusterResult$Description, width = 50)
+
+write.csv(as.data.frame(test_res_hvg_mf),
+          "tables/ARC_STAT3_GO_MF_hvg_bg.csv", row.names = FALSE)
+
+```
+
+```{R, fig3H.hvg.mf.top5, fig.height=8, fig.width=9}
+
+dotplot(test_res_hvg_mf, showCategory = 5) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:MF — top 5 terms per cluster\n(background: Seurat HVGs)")
+
+```
+
+```{R, fig3H.hvg.mf.top3, fig.height=6, fig.width=9}
+
+dotplot(test_res_hvg_mf, showCategory = 3) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:MF — top 3 terms per cluster\n(background: Seurat HVGs)")
+
+```
+
+:::
+
+### All regulon targets background
+
+::: {.panel-tabset}
+
+#### GO:BP
+
+```{r, fig3H.regulon.bp.prep}
+
+test_res_regulon_bp <- compareCluster(for_out, "enrichGO",
+                        OrgDb         = org.Mm.eg.db,
+                        universe      = all_regulon_background,
+                        ont           = "BP",
+                        pAdjustMethod = "BH",
+                        keyType       = "SYMBOL",
+                        pvalueCutoff  = 1,
+                        qvalueCutoff  = 1)
+
+test_res_regulon_bp@compareClusterResult$Description <- str_wrap(
+  test_res_regulon_bp@compareClusterResult$Description, width = 50)
+
+write.csv(as.data.frame(test_res_regulon_bp),
+          "tables/ARC_STAT3_GO_BP_regulon_bg.csv", row.names = FALSE)
+
+```
+
+```{R, fig3H.regulon.bp.top5, fig.height=8, fig.width=9}
+
+dotplot(test_res_regulon_bp, showCategory = 5) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:BP — top 5 terms per cluster\n(background: all SCENIC+ regulon targets)")
+
+```
+
+```{R, fig3H.regulon.bp.top3, fig.height=6, fig.width=9}
+
+dotplot(test_res_regulon_bp, showCategory = 3) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:BP — top 3 terms per cluster\n(background: all SCENIC+ regulon targets)")
+
+```
+
+#### GO:MF
+
+```{r, fig3H.regulon.mf.prep}
+
+test_res_regulon_mf <- compareCluster(for_out, "enrichGO",
+                        OrgDb         = org.Mm.eg.db,
+                        universe      = all_regulon_background,
+                        ont           = "MF",
+                        pAdjustMethod = "BH",
+                        keyType       = "SYMBOL",
+                        pvalueCutoff  = 1,
+                        qvalueCutoff  = 1)
+
+test_res_regulon_mf@compareClusterResult$Description <- str_wrap(
+  test_res_regulon_mf@compareClusterResult$Description, width = 50)
+
+write.csv(as.data.frame(test_res_regulon_mf),
+          "tables/ARC_STAT3_GO_MF_regulon_bg.csv", row.names = FALSE)
+
+```
+
+```{R, fig3H.regulon.mf.top5, fig.height=8, fig.width=9}
+
+dotplot(test_res_regulon_mf, showCategory = 5) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:MF — top 5 terms per cluster\n(background: all SCENIC+ regulon targets)")
+
+```
+
+```{R, fig3H.regulon.mf.top3, fig.height=6, fig.width=9}
+
+dotplot(test_res_regulon_mf, showCategory = 3) +
+  theme(axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        plot.margin = margin(5, 5, 80, 180)) +
+  ggtitle("GO:MF — top 3 terms per cluster\n(background: all SCENIC+ regulon targets)")
+
+```
+
+:::
+
+:::
+
+
+# Session Information
+
+```{r}
+devtools::session_info()
+
+```
