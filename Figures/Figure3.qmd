@@ -1525,13 +1525,14 @@ p_final <- pheatmap(
 
 print(p_final)
 
-# Export gene order
+# Export gene order — cluster labels taken from row_meta_g so the CSV always
+# matches the heatmap's gene_cluster annotation (k = 8)
 dir.create("tables", showWarnings = FALSE)
 gene_order_g3g <- rownames(for_plot3)[p_clust$tree_row$order]
 write.csv(
   data.frame(
     gene         = gene_order_g3g,
-    gene_cluster = cutree(p_clust$tree_row, k = 6)[p_clust$tree_row$order],
+    gene_cluster = row_meta_g[gene_order_g3g, "gene_cluster"],
     row          = seq_along(gene_order_g3g)
   ),
   "tables/ARC_STAT3_targets_wt_clust0_3_17_gene_order.csv",
