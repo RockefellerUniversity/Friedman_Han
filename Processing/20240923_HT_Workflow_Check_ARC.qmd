@@ -18,7 +18,7 @@ format:
 
 # Workflow Rerun
 
-We are rerunning this to check the cretion of several rds objects from initial run. 
+We are rerunning this to check the creation of several rds objects from initial run. 
 
 This is largely based on code from: 9_snATAC_snRNA_allSamples_ARC_20230819.Rmd
 
