@@ -1,0 +1,286 @@
+---
+title: "leptin_arc_PT"
+date: "10/24/2021"
+output: html_document
+---
+
+```{r, message=FALSE}
+library(Seurat)
+library(Matrix)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(SeuratWrappers)
+set.seed(123)
+
+
+user_dir =  "./"
+data_dir = user_dir + "Raw_data/"
+save_dir = user_dir + "Procesed_data/R/"
+```
+
+|             |     ARC     |
+| ----------- | ----------- |
+| all cells   | 25 clusters |
+| non-neuronal clusters | 20/21/23/24|
+| Neuronal clusters | 0/1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/22|
+| Neurons located outside the region   | None |
+| Neurons located within the region   | 0/1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/22 |
+| Inhibitory neurons   | 0/1/2/3/4/5/7/8/10/11/14/17/18/19 |
+| Excitatory neurons  | 6/9/12/13/15/16/22| 
+
+```{r get raw data}
+
+#this runs on R4.1.0
+#load data from leptin treated
+all_singlets = readRDS(paste0(save_dir, "leptin_allcell_sinlgets.rds"))
+arc_leptin <- subset(all_singlets, idents = c("Hashtag1","Hashtag5","Hashtag7"))
+dim(arc_leptin)
+#[1] 23820  3935
+
+rm(all_singlets)
+
+#load data from OB
+arc_ob = readRDS(paste0(save_dir,"ob_ARC_sinlgets.rds"))
+
+#load data from WT
+arc_wt = readRDS(paste0(save_dir,"wt_ARC_sinlgets.rds"))
+
+arc.combined.raw = merge(arc_ob, c(arc_wt,arc_leptin))
+
+arc.list = list(arc_ob, arc_wt, arc_leptin)
+test = reduce(arc.list, MergeSeurat, do.normalize = FALSE)
+
+dim(arc.combined.raw)
+
+rm(arc_leptin)
+rm(arc_ob)
+rm(arc_wt)
+
+arc.combined = readRDS(paste0(save_dir, "arc.combined_111621.RDS"))
+
+df_raw = arc.combined.raw@meta.data
+df_raw$new_id = paste0(rownames(df_raw), "_", df_raw$orig.ident)
+df = arc.combined@meta.data
+df$new_id = paste0(rownames(df), "_", df$orig.ident)
+
+Idents(arc.combined.raw) = Idents(arc.combined)
+arc.combined.raw$clusters = df$seurat_clusters
+arc.combined.raw$condition = df$condition
+```
+
+```{r}
+#load data from leptin treated
+all_singlets = readRDS(paste0(save_dir, "leptin_allcell_sinlgets.rds"))
+arc_leptin <- subset(all_singlets, idents = c("Hashtag1","Hashtag5","Hashtag7"))
+dim(arc_leptin)
+#[1] 23820  3935
+
+rm(all_singlets)
+arc_leptin <- NormalizeData(arc_leptin, normalization.method = "LogNormalize", scale.factor = 10000)
+
+#load data from OB
+arc_ob = readRDS(paste0(save_dir,"ob_ARC_sinlgets.rds"))
+arc_ob <- NormalizeData(arc_ob, normalization.method = "LogNormalize", scale.factor = 10000)
+
+#load data from WT
+arc_wt = readRDS(paste0(save_dir,"wt_ARC_sinlgets.rds"))
+arc_wt <- NormalizeData(arc_wt, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r no bc, eval=FALSE}
+arc.combined = merge(arc_leptin,c(arc_ob, arc_wt))
+dim(arc.combined)
+#[1] 24599 12326
+
+arc.combined = ScaleData(arc.combined, verbose = FALSE)
+arc.combined = FindVariableFeatures(arc.combined)
+arc.combined <- RunPCA(arc.combined, npcs = 50, verbose = FALSE)
+#arc.combined <- JackStraw(arc.combined, dims = 30)
+#arc.combined <- ScoreJackStraw(arc.combined,dims=1:30)
+#JackStrawPlot(arc.combined, dims = 1:30)
+ElbowPlot(arc.combined) #take 30PC
+arc.combined <- RunUMAP(arc.combined, reduction = "pca", dims = 1:30)
+arc.combined <- FindNeighbors(arc.combined, reduction = "pca", dims = 1:30)
+arc.combined <- FindClusters(arc.combined, resolution = 0.55)
+
+arc_markers = c("Slc17a6", "Slc32a1", "Gad1", "Lepr", "Npy", "Pomc", "Bnc2", "Sst", "Ghrh", "Th", "Pnoc","Agrp", "Magel2")
+VlnPlot(arc.combined, features = arc_markers, pt.size = 0, same.y.lims = TRUE, stack = TRUE, flip = TRUE)
+
+saveRDS(arc.combined, file = paste0(save_dir, "arc.combined_non_bc_111621.RDS"))
+
+pt <- table(Idents(arc.combined), arc.combined$meta.data$condition)
+pt <- as.data.frame(pt)
+pt$Var1 <- as.character(pt$Var1)
+
+library(RColorBrewer)
+ggplot(pt, aes(x = Var1, y = Freq, fill = Var2)) +
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.5) +
+  xlab("Sample") +
+  ylab("Proportion") +
+  #scale_fill_manual(values = brewer.pal(12, "Paired")) +
+  theme(legend.title = element_blank())
+```
+
+
+```{R batch_correction}
+#integrate the three conditions with batch corrected 
+arc.list = list(arc_ob, arc_wt, arc_leptin)
+
+#Slc32a1 is in the expression
+all_genes <- lapply(arc.list, row.names) %>% Reduce(intersect, .)
+
+#"Slc32a1" does not in top 4000 variable genes
+arc.anchors <- FindIntegrationAnchors(object.list = arc.list, anchor.features = all_genes)
+
+#renaming 
+arc.combined <- IntegrateData(anchorset = arc.anchors, features = all_genes)
+
+#standard RNA processing
+#arc.combined[["percent.mt"]] <- PercentageFeatureSet(arc.combined, pattern = "^MT-", assay = 'RNA')
+DefaultAssay(arc.combined) = "integrated"
+arc.combined = ScaleData(arc.combined, verbose = FALSE)
+arc.combined <- RunPCA(arc.combined, npcs = 50, verbose = FALSE)
+#arc.combined <- JackStraw(arc.combined, dims = 30)
+#arc.combined <- ScoreJackStraw(arc.combined,dims=1:30)
+#JackStrawPlot(arc.combined, dims = 1:30)
+ElbowPlot(arc.combined) #take 30PC
+arc.combined <- RunUMAP(arc.combined, reduction = "pca", dims = 1:30)
+arc.combined <- FindNeighbors(arc.combined, reduction = "pca", dims = 1:30)
+arc.combined <- FindClusters(arc.combined, resolution = 0.55)
+
+#hashtag1 ARCH3H, hashtag2 PVH3H, hashtag5 ARCH24h, hashtag6 PVH24h, hashtag7 ARCH72h, hashtag8 PVH72H 
+arc.combined@meta.data$time = ''
+hashtag_list = paste0('Hashtag',c(1,5,7, 2,6,8))
+reg_time = c(paste0('ARC', c('3h', '24h','72h')),paste0('PVH', c('3h', '24h','72h')))
+conv_table =data.frame(hashtag_list, reg_time)
+
+for (i in 1:3) {
+  arc.combined@meta.data[which(arc.combined@meta.data$orig.ident == "leptin" & arc.combined@meta.data$Hashtag_classification == conv_table$hashtag_list[i]),  'time'] = conv_table$reg_time[i]
+}
+
+arc.combined@meta.data$condition = paste0(arc.combined@meta.data$orig.ident, arc.combined@meta.data$time)
+
+p1 <- DimPlot(arc.combined, reduction = "umap", group.by = "condition")
+p2 <- DimPlot(arc.combined, reduction = "umap", label = TRUE, repel = TRUE)
+p1 + p2
+
+#plot by cell percentage
+ggplot(arc.combined@meta.data, aes(x=seurat_clusters, fill=condition)) + geom_bar(position = "fill") + theme_bw()
+
+#specific gene expression
+#look at one gene
+my_cols = RColorBrewer::brewer.pal(5, "Paired")
+VlnPlot(arc.combined, features = "Lepr", split.by = "condition", group.by = "seurat_clusters", pt.size = 0, combine = FALSE, cols = my_cols)
+
+#look at all the arc markers
+arc_markers = c("Slc17a6", "Slc32a1", "Gad1", "Lepr", "Npy", "Pomc", "Bnc2", "Sst", "Ghrh", "Th", "Pnoc","Agrp", "Magel2")
+VlnPlot(arc.combined, features = arc_markers, pt.size = 0, same.y.lims = TRUE, stack = TRUE, flip = TRUE)
+saveRDS(arc.combined, file =paste0(save_dir, "arc.combined_112421.RDS"))
+
+#split by conditions
+VlnPlot(arc.combined, features = arc_markers, pt.size = 0, split.by="condition",same.y.lims = TRUE, stack = TRUE, flip = TRUE, cols=my_cols)
+
+#Idents(arc.combined) = arc.combined@meta.data$condition
+#arc.combined_wt = subset(arc.combined, idents = "wt")
+#Idents(arc.combined_wt) = arc.combined_wt@meta.data$seurat_clusters
+#VlnPlot(arc.combined_wt, features = arc_markers, pt.size = 0,same.y.lims = TRUE, stack = TRUE, flip = TRUE)
+
+#Identify cluster specific gene expression
+#DefaultAssay(arc.combined) <- "RNA"
+#deg_markers = FindAllMarkers(arc.combined, verbose = F)
+#write.csv(deg_markers, file = "~/Downloads/filtered_feature_bc_matrix_701/arc_combined_bc_deg_markers.csv")
+
+```
+
+```{R}
+write.csv(Cells(arc.combined), file = paste0(save_dir,"cellID_obs_ARC.csv") , row.names = FALSE)
+write.csv(Embeddings(arc.combined, reduction = "umap"), file = paste0(save_dir,"cell_embeddings_ARC.csv"))
+write.csv(arc.combined@meta.data, file = paste0(save_dir,"meta_data_ARC.csv"))
+```
+
+
+```{r construct gene regulatory network}
+library(epoch)
+library(singleCellNet)
+
+arc.combined = readRDS(paste0(save_dir, "arc.combined_111621.RDS"))
+sampTab = read.csv("metadata_arc_pt.csv")
+rownames(sampTab) = as.vector(sampTab$cellID)
+
+#find HVG
+arc.combined <- FindVariableFeatures(arc.combined , selection.method = "vst", nfeatures = 4000)
+
+expDat<-arc.combined@assays$RNA@counts
+expDat = expDat[rowSums(expDat)!=0,] #remove dropout genes
+
+# Find TFs
+mmTFs<-utils_loadObject(paste0(save_dir,"/mmTFs.rda"))
+#mmTFs<-intersect(rownames(expDat),mmTFs)
+
+# Only look at specific cluster
+cluster = 17
+sampTab_neuron = sampTab[which(sampTab$seurat_clusters %in% c(cluster)),]
+sampTab_neuron$velocity_pseudotime_scaled = (sampTab_neuron$velocity_pseudotime - min(sampTab_neuron$velocity_pseudotime)) / (max(sampTab_neuron$velocity_pseudotime) - min(sampTab_neuron$velocity_pseudotime))
+
+expDat_neuron = as.matrix(expDat[VariableFeatures(arc.combined),rownames(sampTab_neuron)])
+#downsample and log-transform data
+
+expDat_neuron = trans_prop(expDat_neuron, total = 10000, dThresh = 0.25)
+expDat_neuron = expDat_neuron[rowSums(expDat_neuron)>0,]
+mmTFs<-intersect(rownames(expDat_neuron),mmTFs)
+
+# Find dynamically expressed genes
+xdyn <- findDynGenes(expDat_neuron, sampTab_neuron, group_column="seurat_clusters", pseudotime_column="velocity_pseudotime_scaled")
+pThresh<-0.01
+dgenes<-names(xdyn$genes)[xdyn$genes<pThresh]
+
+# Reconstruct and perform crossweighting
+grnDF <- reconstructGRN(expDat_neuron, mmTFs, dgenes, method="pearson", zThresh=3)
+grnDF <- crossweight(grnDF,expDat_neuron,xdyn,filter_thresh=0)
+
+xdyn<-define_epochs(xdyn,expDat_neuron,method="pseudotime",num_epochs=3)
+epoch_assignments<-assign_epochs(expDat_neuron,xdyn)
+dynamic_grn<-epochGRN(grnDF,epoch_assignments)
+
+#influential TFs
+gene_rank<-compute_pagerank(dynamic_grn,weight_column="weighted_score")
+another_gene_rank<-compute_betweenness_degree(dynamic_grn,weight_column="weighted_score")
+
+#add interactions
+dynamic_grn<-add_interaction_type(dynamic_grn)
+community_assignments<-find_communities(dynamic_grn)
+
+# First, smooth expression for a cleaner plot
+ccells <- xdyn$cells
+expSmoothed <- grnKsmooth(expDat_neuron, ccells, BW=0.03)
+
+# Plot a heatmap of the dynamic TFs
+tfstoplot<-intersect(dgenes  ,mmTFs)
+dynTFs<-xdyn
+dynTFs$genes<-dynTFs$genes[names(dynTFs$genes) %in% tfstoplot]
+
+pdf(paste0("~/Desktop/arc_cluster",cluster, "_top20_dynamicTF.pdf"))
+hm_dyn(expSmoothed,dynTFs,topX=20)
+dev.off()
+
+#plot dynamic network
+pdf(paste0("~/Desktop/arc_cluster", cluster, "_dynamicGRN.pdf"))
+plot_dynamic_network(dynamic_grn,mmTFs,only_TFs=TRUE,order=c("epoch1..epoch1","epoch2..epoch2","epoch3..epoch3"))
+dev.off()
+
+pdf(paste0("~/Desktop/arc_cluster",cluster,"_top5TFs.pdf"))
+plot_top_regulators(dynamic_grn, gene_rank, mmTFs, numTopTFs=5, only_TFs=FALSE,order=c("epoch1..epoch1","epoch2..epoch2","epoch3..epoch3"))
+dev.off()
+```
+
+```{r}
+#de genes used for GO term analysis
+arc_combined_neuron = subset(arc.combined, idents = c("0","1","2","3","4","5", "6","7", "8","10", "11","12","13","14", "16", "17","18","19", "22"))
+arc_degs <- FindAllMarkers(arc_combined_neuron, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.csv(arc_degs, file = paste0(save_dir,"arc_combined_neuron_seurat_degs.csv"))
+
+```
+
+
